@@ -21,12 +21,12 @@ Point collectors / the ChatGPT extension at the public API URL. Point Cursor / C
 ## Railway sketch
 
 1. Create a Railway project; add two services from the same GitHub repo (or one service with two processes).
-2. **API service**
-   - Root / build: `pnpm install && pnpm --filter @cortex/api build`
+2. **API service** (repo root as root directory)
+   - Build: `pnpm --filter @cortex/api build` (builds workspace deps via `^...`, then `tsc`)
    - Start: `pnpm --filter @cortex/api start`
    - Env: `PORT`, `CORTEX_INGEST_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, optional `GITHUB_WEBHOOK_SECRET`, `CORTEX_OWNER_ID`
-3. **MCP service**
-   - Build: `pnpm install && pnpm --filter @cortex/mcp-server build`
+3. **MCP service** (same repo root)
+   - Build: `pnpm --filter @cortex/mcp-server build`
    - Start: `pnpm --filter @cortex/mcp-server start`
    - Env: `MCP_PORT` or `PORT`, `CORTEX_MCP_TOKEN` (or ingest token), same Supabase vars
 4. Attach public HTTPS domains; set collector `CORTEX_INGEST_URL` to the API domain.
