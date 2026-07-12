@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cortex ChatGPT Capture — Options</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI", system-ui, sans-serif;
+      }
+      body {
+        max-width: 40rem;
+        margin: 2rem auto;
+        padding: 0 1.25rem;
+        line-height: 1.45;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-top: 1rem;
+      }
+      input[type="text"],
+      input[type="password"],
+      input[type="url"] {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 0.35rem;
+        padding: 0.5rem 0.6rem;
+        font: inherit;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+      button {
+        margin-top: 1.25rem;
+        padding: 0.55rem 1rem;
+        font: inherit;
+        cursor: pointer;
+      }
+      #status {
+        margin-top: 0.75rem;
+        font-size: 0.95rem;
+        opacity: 0.85;
+      }
+      code {
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Cortex ChatGPT Capture</h1>
+    <p>
+      Posts completed turns from <code>chatgpt.com</code> to your local Cortex
+      ingest API. Does <strong>not</strong> scrape OpenAI cookies or
+      <code>backend-api</code>.
+    </p>
+
+    <label for="ingestUrl">Ingest base URL</label>
+    <input
+      id="ingestUrl"
+      type="url"
+      placeholder="http://localhost:8787"
+      autocomplete="off"
+    />
+
+    <label for="ingestToken">Bearer token</label>
+    <input
+      id="ingestToken"
+      type="password"
+      placeholder="same as CORTEX_INGEST_TOKEN"
+      autocomplete="off"
+    />
+
+    <div class="row">
+      <input id="enabled" type="checkbox" checked />
+      <label for="enabled" style="margin: 0; font-weight: 500"
+        >Capture enabled</label
+      >
+    </div>
+
+    <button id="save" type="button">Save</button>
+    <p id="status"></p>
+
+    <script src="options.js" type="module"></script>
+  </body>
+</html>

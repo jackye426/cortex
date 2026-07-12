@@ -1,0 +1,57 @@
+﻿[
+  {
+    "id": "conv-1",
+    "conversation_id": "conv-1",
+    "title": "Fixture chat",
+    "create_time": 1700000000,
+    "update_time": 1700000100,
+    "current_node": "msg-assistant",
+    "mapping": {
+      "root": {
+        "id": "root",
+        "message": {
+          "id": "root",
+          "author": { "role": "system" },
+          "content": { "content_type": "text", "parts": [""] },
+          "create_time": null
+        },
+        "parent": null,
+        "children": ["msg-user"]
+      },
+      "msg-user": {
+        "id": "msg-user",
+        "message": {
+          "id": "msg-user",
+          "author": { "role": "user" },
+          "content": { "content_type": "text", "parts": ["Hello Cortex"] },
+          "create_time": 1700000001
+        },
+        "parent": "root",
+        "children": ["msg-assistant", "msg-alt"]
+      },
+      "msg-alt": {
+        "id": "msg-alt",
+        "message": {
+          "id": "msg-alt",
+          "author": { "role": "assistant" },
+          "content": { "content_type": "text", "parts": ["Ignored branch"] },
+          "create_time": 1700000002
+        },
+        "parent": "msg-user",
+        "children": []
+      },
+      "msg-assistant": {
+        "id": "msg-assistant",
+        "message": {
+          "id": "msg-assistant",
+          "author": { "role": "assistant" },
+          "content": { "content_type": "text", "parts": ["Active reply"] },
+          "create_time": 1700000003,
+          "metadata": { "model_slug": "gpt-4o" }
+        },
+        "parent": "msg-user",
+        "children": []
+      }
+    }
+  }
+]

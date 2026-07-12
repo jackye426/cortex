@@ -1,0 +1,36 @@
+{
+  "name": "@cortex/collector",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "backfill": "tsx src/backfill.ts",
+    "backfill:dry": "tsx src/backfill.ts --dry-run"
+  },
+  "dependencies": {
+    "@cortex/adapter-browser": "workspace:*",
+    "@cortex/adapter-calibre": "workspace:*",
+    "@cortex/adapter-calendar": "workspace:*",
+    "@cortex/adapter-chatgpt-export": "workspace:*",
+    "@cortex/adapter-claude-code": "workspace:*",
+    "@cortex/adapter-codex": "workspace:*",
+    "@cortex/adapter-cursor": "workspace:*",
+    "@cortex/adapter-drive": "workspace:*",
+    "@cortex/adapter-github": "workspace:*",
+    "@cortex/adapter-gmail": "workspace:*",
+    "@cortex/adapter-spotify": "workspace:*",
+    "@cortex/adapter-youtube": "workspace:*",
+    "@cortex/core": "workspace:*",
+    "@cortex/google-auth": "workspace:*",
+    "@cortex/redaction": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

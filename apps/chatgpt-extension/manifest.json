@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Cortex ChatGPT Capture",
+  "version": "0.1.0",
+  "description": "Posts completed ChatGPT turns to your Cortex ingest API. No OpenAI cookie scraping.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "http://localhost:8787/*",
+    "http://127.0.0.1:8787/*"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Cortex ChatGPT Capture",
+    "default_popup": "popup.html"
+  }
+}

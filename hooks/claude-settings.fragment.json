@@ -1,0 +1,24 @@
+﻿{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/yulon/Desktop/Current Projects/Cortex/hooks/claude-stop.mjs\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/yulon/Desktop/Current Projects/Cortex/hooks/claude-post-tool-use.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}

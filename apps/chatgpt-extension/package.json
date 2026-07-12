@@ -1,0 +1,9 @@
+{
+  "name": "@cortex/chatgpt-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MV3 extension: chatgpt.com completed turns → Cortex ingest (no cookie scraping)",
+  "scripts": {
+    "build": "node -e \"console.log('chatgpt-extension: load unpacked from apps/chatgpt-extension (no build step)')\""
+  }
+}
