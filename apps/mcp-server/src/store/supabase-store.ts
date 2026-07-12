@@ -3,6 +3,7 @@ import {
   CALENDAR_TYPE,
   EMPTY_MEMORY_HINT,
   EMPTY_SEARCH_HINT,
+  cosineSimilarity,
   horizonCutoffIso,
   isWorkRecordType,
   payloadMatchesQuery,
@@ -111,22 +112,6 @@ function mapEntityLink(row: Record<string, unknown>): EntityLinkRow {
     metadata: asRecord(row.metadata),
     createdAt: String(row.created_at ?? new Date().toISOString()),
   };
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i]!;
-    const y = b[i]!;
-    dot += x * y;
-    na += x * x;
-    nb += y * y;
-  }
-  if (na === 0 || nb === 0) return 0;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 /**
@@ -346,6 +331,38 @@ export class SupabaseStore implements CortexStore {
           textMatchesQuery(JSON.stringify(d.metadata), trimmed) ||
           textMatchesQuery(d.kind, trimmed),
       );
+    }
+    return rows.slice(0, capped);
+  }
+
+  async listDistillates(options: {
+    limit?: number;
+    kinds?: string[];
+    missingEmbedding?: boolean;
+  } = {}): Promise<DistillateRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("distillates")
+      .select("*")
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(options.missingEmbedding ? Math.min(capped * 4, 400) : capped);
+    q = this.applyOwner(q);
+    if (options.kinds?.length) {
+      q = q.in("kind", options.kinds);
+    }
+    if (options.missingEmbedding) {
+      q = q.is("embedding", null);
+    }
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listDistillates:", error.message);
+      return [];
+    }
+    let rows = (data ?? []).map((row) =>
+      mapDistillate(row as Record<string, unknown>),
+    );
+    if (options.missingEmbedding) {
+      rows = rows.filter((d) => !d.embedding?.length);
     }
     return rows.slice(0, capped);
   }
@@ -815,16 +832,22 @@ export class SupabaseStore implements CortexStore {
     const capped = Math.max(1, Math.min(options.limit ?? 15, 50));
     const trimmed = query.trim();
     const hits: MemorySearchHit[] = [];
+    const queryEmbedding = await this.tryEmbedQuery(trimmed);
 
-    // Prefer RPC hybrid when available
+    // Prefer RPC hybrid when available (pass query embedding for vector path)
+    const rpcArgs: Record<string, unknown> = {
+      p_owner_id: this.ownerId ?? null,
+      p_query: trimmed,
+      p_limit: Math.min(capped * 2, 50),
+      p_kinds: options.kinds?.length ? options.kinds : null,
+    };
+    if (queryEmbedding?.length) {
+      rpcArgs.p_query_embedding = `[${queryEmbedding.join(",")}]`;
+    }
+
     const { data: rpcData, error: rpcError } = await this.client.rpc(
       "cortex_search_memory",
-      {
-        p_owner_id: this.ownerId ?? null,
-        p_query: trimmed,
-        p_limit: capped,
-        p_kinds: options.kinds?.length ? options.kinds : null,
-      },
+      rpcArgs,
     );
 
     if (!rpcError && Array.isArray(rpcData)) {
@@ -854,24 +877,47 @@ export class SupabaseStore implements CortexStore {
         });
       }
     } else {
-      if (rpcError && !/could not find the function|PGRST202/i.test(rpcError.message)) {
-        console.warn("[store/supabase] cortex_search_memory:", rpcError.message);
+      if (
+        rpcError &&
+        !/could not find the function|PGRST202/i.test(rpcError.message)
+      ) {
+        console.warn(
+          "[store/supabase] cortex_search_memory:",
+          rpcError.message,
+        );
       }
-      // Local hybrid: keyword distillates + records; optional vector if embeddings present
-      const [distillates, records] = await Promise.all([
-        this.searchDistillates(trimmed, capped, options.kinds),
-        this.searchRecords(trimmed, {
-          limit: capped,
-          since: options.since,
-          until: options.until,
-        }),
-      ]);
+      // Local hybrid: keyword distillates + records; vector re-rank when embeddings exist
+      const distillates = trimmed
+        ? await this.searchDistillates(trimmed, capped * 2, options.kinds)
+        : await this.listDistillates({
+            limit: capped * 2,
+            kinds: options.kinds,
+          });
+      const records = trimmed
+        ? await this.searchRecords(trimmed, {
+            limit: capped,
+            since: options.since,
+            until: options.until,
+          })
+        : { hits: [] as import("./types.js").RecordHit[], distillates: [] };
 
       for (const d of distillates) {
+        let score = trimmed
+          ? textMatchesQuery(d.content, trimmed) ||
+            textMatchesQuery(JSON.stringify(d.metadata), trimmed)
+            ? 0.72
+            : 0.4
+          : 0.55;
+        if (queryEmbedding && d.embedding?.length) {
+          score = Math.max(
+            score,
+            cosineSimilarity(queryEmbedding, d.embedding),
+          );
+        }
         hits.push({
           kind: "distillate",
           id: d.id,
-          score: 0.7,
+          score,
           title: `${d.kind}:${d.subjectType}/${d.subjectId}`,
           snippet: (d.content ?? "").slice(0, 280),
           sessionId: d.subjectType === "session" ? d.subjectId : undefined,
@@ -884,7 +930,7 @@ export class SupabaseStore implements CortexStore {
         hits.push({
           kind: "record",
           id: r.id,
-          score: 0.5,
+          score: 0.48,
           title:
             (typeof r.payload.title === "string" && r.payload.title) ||
             (typeof r.payload.subject === "string" && r.payload.subject) ||
@@ -895,25 +941,43 @@ export class SupabaseStore implements CortexStore {
           recordType: r.recordType,
         });
       }
-
-      // Re-rank distillates that have embeddings if query embedding provided via env worker
-      const queryEmbedding = await this.tryEmbedQuery(trimmed);
-      if (queryEmbedding) {
-        for (const h of hits) {
-          if (h.kind !== "distillate") continue;
-          const d = distillates.find((x) => x.id === h.id);
-          if (d?.embedding?.length) {
-            h.score = Math.max(
-              h.score,
-              cosineSimilarity(queryEmbedding, d.embedding),
-            );
-          }
-        }
-      }
     }
 
-    hits.sort((a, b) => b.score - a.score);
-    const sliced = hits.slice(0, capped);
+    // Client-side since/until for distillate hits when subject is session:
+    // filter records by searching record occurred_at via id map is expensive;
+    // apply only when we have record hits from keyword path above.
+    // For RPC path, re-fetch record timestamps if filters set.
+    let filtered = hits;
+    if (options.since || options.until) {
+      const recordIds = hits
+        .filter((h) => h.kind === "record")
+        .map((h) => h.id);
+      const occurred = new Map<string, string | null>();
+      if (recordIds.length) {
+        const { data } = await this.client
+          .from("records")
+          .select("id, occurred_at")
+          .in("id", recordIds.slice(0, 100));
+        for (const row of data ?? []) {
+          const r = row as Record<string, unknown>;
+          occurred.set(
+            String(r.id),
+            typeof r.occurred_at === "string" ? r.occurred_at : null,
+          );
+        }
+      }
+      filtered = hits.filter((h) => {
+        if (h.kind !== "record") return true;
+        const at = occurred.get(h.id);
+        if (!at) return true;
+        if (options.since && at < options.since) return false;
+        if (options.until && at > options.until) return false;
+        return true;
+      });
+    }
+
+    filtered.sort((a, b) => b.score - a.score);
+    const sliced = filtered.slice(0, capped);
     return {
       hits: sliced,
       hint: sliced.length === 0 ? EMPTY_MEMORY_HINT : undefined,

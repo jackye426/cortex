@@ -237,6 +237,15 @@ export interface CortexStore {
     limit?: number,
     kinds?: string[],
   ): Promise<DistillateRow[]>;
+  /**
+   * Distillates missing `embedding` (for embed-backfill without re-LLM).
+   * When `missingEmbedding` is false/undefined, returns recent by kinds.
+   */
+  listDistillates(options?: {
+    limit?: number;
+    kinds?: string[];
+    missingEmbedding?: boolean;
+  }): Promise<DistillateRow[]>;
   searchMemory(
     query: string,
     options?: MemorySearchOptions,

@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import {
+  embedTexts,
+  embeddingModel,
+  openaiConfigured,
+} from "./llm.js";
+import {
+  getAllocatorContext,
+  refreshSelfModel,
+  runPriorityVsActual,
+  seedEntitiesFromDistillates,
+} from "./project-brief.js";
 import type { CortexStore } from "./store/index.js";
 
 function textResult(data: unknown) {
@@ -19,10 +30,11 @@ export const CORTEX_RETRIEVAL_PLAYBOOK = `Cortex retrieval playbook (Personal Ex
 1. "What am I building / working on?" → list_recent_work first (defaults: sessions + github_* + email; calendar excluded; future events beyond +7d dropped). Then search_memory or search_records for keywords. Deep-dive with get_session.
 2. Schedule / meetings → get_calendar_range ONLY. Do not use list_recent_work for calendar — recurring future events dominate occurred_at sort.
 3. Keyword search → search_records searches payload text + distillate content. Defaults exclude calendar_event. Empty count with a hint is real emptiness, not sparse indexing.
-4. Semantic / insight questions → search_memory (distillates + hybrid). Prefer distillate hits; use get_session for evidence.
+4. Semantic / insight questions → search_memory (distillates + hybrid vector when embeddings exist). Prefer distillate hits; use get_session for evidence.
 5. Email thread → get_email_thread with payload.threadId from an email_message hit.
-6. Project graph → list_entities / get_entity_links (ambitions & projects).
-7. Call cortex_help anytime for this playbook.`;
+6. Project graph → list_entities / get_entity_links / seed_entities (ambitions & projects).
+7. Twin: capture_decision / list_decisions; priority_vs_actual; refresh_self_model; allocator_context for 3h/3w/3y leverage.
+8. Call cortex_help anytime for this playbook.`;
 
 /** Register Cortex retrieval tools on a fresh McpServer instance. */
 export function registerCortexTools(
@@ -45,7 +57,11 @@ export function registerCortexTools(
       description:
         "Keyword search over canonical record payload text (and distillate content). WHEN TO USE: find emails, GitHub items, drive files, or named topics by token. WHAT IT MISSES: pure semantic similarity (use search_memory); schedule (use get_calendar_range). Defaults exclude calendar_event so open work searches are not drowned by recurring events. Empty results include a hint — do not invent 'sparse indexing'.",
       inputSchema: {
-        query: z.string().describe("Search query (matched against payload text, ids, types, distillates)"),
+        query: z
+          .string()
+          .describe(
+            "Search query (matched against payload text, ids, types, distillates)",
+          ),
         limit: z
           .number()
           .int()
@@ -56,7 +72,9 @@ export function registerCortexTools(
         recordTypes: z
           .array(z.string())
           .optional()
-          .describe("Only these record_type values (e.g. email_message, github_pr)"),
+          .describe(
+            "Only these record_type values (e.g. email_message, github_pr)",
+          ),
         sources: z
           .array(z.string())
           .optional()
@@ -64,7 +82,9 @@ export function registerCortexTools(
         excludeTypes: z
           .array(z.string())
           .optional()
-          .describe("Exclude record types (calendar_event excluded by default)"),
+          .describe(
+            "Exclude record types (calendar_event excluded by default)",
+          ),
         since: z.string().optional().describe("ISO lower bound on occurred_at"),
         until: z.string().optional().describe("ISO upper bound on occurred_at"),
         includeCalendar: z
@@ -107,7 +127,7 @@ export function registerCortexTools(
     "search_memory",
     {
       description:
-        "Hybrid memory search: distillate summaries (keyword + vector when embeddings exist) merged with canonical keyword hits. WHEN TO USE: insight questions ('what am I building', 'clinic pilot', 'healthcare pipeline'). Prefer distillate hits; call get_session for full evidence. WHAT IT MISSES: raw calendar schedule.",
+        "Hybrid memory search: distillate summaries (keyword + vector when distillates.embedding is populated) merged with canonical keyword hits. WHEN TO USE: insight questions ('what am I building', 'clinic pilot', 'healthcare pipeline'). Prefer distillate hits; call get_session for full evidence. WHAT IT MISSES: raw calendar schedule. Empty hint means no distillates/embeddings yet — run distillate + embed-backfill.",
       inputSchema: {
         query: z.string().describe("Natural-language or keyword query"),
         limit: z
@@ -120,7 +140,9 @@ export function registerCortexTools(
         kinds: z
           .array(z.string())
           .optional()
-          .describe("Distillate kinds to include (summary, project_brief, self_model, …)"),
+          .describe(
+            "Distillate kinds (summary, project_brief, self_model, decision, outcome, priority_vs_actual, …)",
+          ),
         since: z.string().optional(),
         until: z.string().optional(),
       },
@@ -147,9 +169,7 @@ export function registerCortexTools(
       description:
         "Deep-dive an AI session by UUID or source_session_id: messages, tool summaries, and attached distillate. WHEN TO USE: after list_recent_work / search_memory returns a session id and you need evidence. WHAT IT MISSES: cross-session synthesis (use search_memory / project briefs).",
       inputSchema: {
-        sessionId: z
-          .string()
-          .describe("Session UUID or source session id"),
+        sessionId: z.string().describe("Session UUID or source session id"),
       },
     },
     async ({ sessionId }) => {
@@ -185,7 +205,9 @@ export function registerCortexTools(
         excludeTypes: z
           .array(z.string())
           .optional()
-          .describe("Record types to drop (default calendar_event in work mode)"),
+          .describe(
+            "Record types to drop (default calendar_event in work mode)",
+          ),
         horizonDays: z
           .number()
           .int()
@@ -193,14 +215,25 @@ export function registerCortexTools(
           .max(3650)
           .nullable()
           .optional()
-          .describe("Drop items after now+N days (default 7; null = no horizon)"),
+          .describe(
+            "Drop items after now+N days (default 7; null = no horizon)",
+          ),
         workMode: z
           .boolean()
           .optional()
-          .describe("Prefer github/email records (default true when kinds omitted)"),
+          .describe(
+            "Prefer github/email records (default true when kinds omitted)",
+          ),
       },
     },
-    async ({ limit, kinds, recordTypes, excludeTypes, horizonDays, workMode }) => {
+    async ({
+      limit,
+      kinds,
+      recordTypes,
+      excludeTypes,
+      horizonDays,
+      workMode,
+    }) => {
       const items = await store.listRecentWork({
         limit: limit ?? 20,
         kinds,
@@ -263,9 +296,7 @@ export function registerCortexTools(
       description:
         "Get a Drive (or similar) file summary by record UUID or source_record_id. WHEN TO USE: after a drive_file hit. WHAT IT MISSES: full file body (vault stores metadata/summary).",
       inputSchema: {
-        fileId: z
-          .string()
-          .describe("Record UUID or source_record_id"),
+        fileId: z.string().describe("Record UUID or source_record_id"),
       },
     },
     async ({ fileId }) => {
@@ -397,7 +428,7 @@ export function registerCortexTools(
     "list_entities",
     {
       description:
-        "List project/ambition entities in the twin graph (entity_type e.g. project, ambition, priority). WHEN TO USE: map stated goals vs work. Extension point for D1–D2.",
+        "List project/ambition entities in the twin graph (entity_type e.g. project, ambition, priority). WHEN TO USE: map stated goals vs work. Twin D1.",
       inputSchema: {
         entityType: z
           .string()
@@ -436,6 +467,25 @@ export function registerCortexTools(
         metadata,
       });
       return textResult({ mode: store.mode, entity });
+    },
+  );
+
+  server.registerTool(
+    "seed_entities",
+    {
+      description:
+        "Seed project entities from session distillate metadata.projects[] and link sessions (D1). WHEN TO USE: after distillate worker has written summaries with projects[].",
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional(),
+        dryRun: z.boolean().optional(),
+      },
+    },
+    async ({ limit, dryRun }) => {
+      const result = await seedEntitiesFromDistillates(store, {
+        limit: limit ?? 80,
+        dryRun,
+      });
+      return textResult(result);
     },
   );
 
@@ -486,7 +536,7 @@ export function registerCortexTools(
     "capture_decision",
     {
       description:
-        "Light capture of a decision or outcome as a canonical-shaped note via distillate metadata + entity stub (D3 extension). Stores kind=decision|outcome distillate on subject_type=note.",
+        "Light capture of a decision or outcome as distillate kind=decision|outcome on subject_type=note (D3). Embeds when OPENAI_API_KEY is set.",
       inputSchema: {
         kind: z.enum(["decision", "outcome"]),
         title: z.string(),
@@ -499,12 +549,25 @@ export function registerCortexTools(
     },
     async ({ kind, title, content, relatedEntityKey }) => {
       const subjectId = randomUUID();
+      const body = `${title}\n\n${content}`;
+      let embedding: number[] | null = null;
+      let embeddingRef: string | null = null;
+      if (openaiConfigured()) {
+        try {
+          const [vec] = await embedTexts([body]);
+          embedding = vec ?? null;
+          embeddingRef = embedding ? `openai:${embeddingModel()}` : null;
+        } catch {
+          // keep capture even if embed fails
+        }
+      }
       const row = await store.upsertDistillate({
         subjectType: "note",
         subjectId,
         kind,
-        content: `${title}\n\n${content}`,
-        embeddingRef: null,
+        content: body,
+        embeddingRef,
+        embedding,
         model: "mcp-capture",
         metadata: {
           title,
@@ -527,6 +590,80 @@ export function registerCortexTools(
         });
       }
       return textResult({ mode: store.mode, distillate: row });
+    },
+  );
+
+  server.registerTool(
+    "list_decisions",
+    {
+      description:
+        "List recent decision/outcome distillates (D3). Optional kind filter.",
+      inputSchema: {
+        kind: z
+          .enum(["decision", "outcome"])
+          .optional()
+          .describe("Filter to one kind; omit for both"),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+    },
+    async ({ kind, limit }) => {
+      const kinds = kind ? [kind] : ["decision", "outcome"];
+      const rows = await store.listDistillates({
+        limit: limit ?? 20,
+        kinds,
+      });
+      return textResult({
+        mode: store.mode,
+        count: rows.length,
+        decisions: rows,
+      });
+    },
+  );
+
+  server.registerTool(
+    "priority_vs_actual",
+    {
+      description:
+        "Compute and persist a week priority_vs_actual distillate: session hours attributed to projects vs ambition/priority entities (D2). Heuristic; LLM optional elsewhere.",
+      inputSchema: {
+        dryRun: z.boolean().optional(),
+        weekOf: z
+          .string()
+          .optional()
+          .describe("ISO date inside the target week (default now)"),
+      },
+    },
+    async ({ dryRun, weekOf }) => {
+      const result = await runPriorityVsActual(store, { dryRun, weekOf });
+      return textResult(result);
+    },
+  );
+
+  server.registerTool(
+    "refresh_self_model",
+    {
+      description:
+        "Refresh distillate kind=self_model from latest priority_vs_actual + decisions/outcomes + briefs (D4).",
+      inputSchema: {
+        dryRun: z.boolean().optional(),
+      },
+    },
+    async ({ dryRun }) => {
+      const row = await refreshSelfModel(store, { dryRun });
+      return textResult({ mode: store.mode, distillate: row });
+    },
+  );
+
+  server.registerTool(
+    "allocator_context",
+    {
+      description:
+        "Return structured 3h/3w/3y capital-allocator prompt seed over D1–D4 (projects, briefs, priority_vs_actual, decisions, self_model). Not a separate product — grounding pack only (D5).",
+      inputSchema: {},
+    },
+    async () => {
+      const ctx = await getAllocatorContext(store);
+      return textResult({ mode: store.mode, ...ctx });
     },
   );
 }

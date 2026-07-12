@@ -3,6 +3,8 @@ import {
   CALENDAR_TYPE,
   EMPTY_MEMORY_HINT,
   EMPTY_SEARCH_HINT,
+  cosineSimilarity,
+  fixtureEmbedFromText,
   horizonCutoffIso,
   isWorkRecordType,
   resolveExcludeTypes,
@@ -58,7 +60,7 @@ export class FixtureStore implements CortexStore {
   ): Promise<SearchRecordsResult> {
     const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
     const excludeTypes = new Set(resolveExcludeTypes(options));
-    let hits = FIXTURE_RECORDS.filter((r) => {
+    const hits = FIXTURE_RECORDS.filter((r) => {
       if (excludeTypes.has(r.recordType)) return false;
       if (
         options.recordTypes?.length &&
@@ -108,6 +110,23 @@ export class FixtureStore implements CortexStore {
           textMatchesQuery(d.kind, query) ||
           !query.trim()
         );
+      })
+      .slice(0, capped);
+  }
+
+  async listDistillates(options: {
+    limit?: number;
+    kinds?: string[];
+    missingEmbedding?: boolean;
+  } = {}): Promise<DistillateRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureDistillates
+      .filter((d) => {
+        if (options.kinds?.length && !options.kinds.includes(d.kind)) {
+          return false;
+        }
+        if (options.missingEmbedding && d.embedding?.length) return false;
+        return true;
       })
       .slice(0, capped);
   }
@@ -168,7 +187,11 @@ export class FixtureStore implements CortexStore {
         ) {
           continue;
         }
-        if (workMode && !options.recordTypes?.length && !isWorkRecordType(r.recordType)) {
+        if (
+          workMode &&
+          !options.recordTypes?.length &&
+          !isWorkRecordType(r.recordType)
+        ) {
           continue;
         }
         if (!withinHorizon(r.occurredAt, cutoff)) continue;
@@ -262,32 +285,49 @@ export class FixtureStore implements CortexStore {
     options: MemorySearchOptions = {},
   ): Promise<MemorySearchResult> {
     const capped = Math.max(1, Math.min(options.limit ?? 15, 50));
-    const distillates = await this.searchDistillates(
-      query,
-      capped,
-      options.kinds,
-    );
-    const records = await this.searchRecords(query, {
-      limit: capped,
-      since: options.since,
-      until: options.until,
-    });
+    const trimmed = query.trim();
+    const distillates = trimmed
+      ? await this.searchDistillates(trimmed, capped * 2, options.kinds)
+      : await this.listDistillates({ limit: capped * 2, kinds: options.kinds });
+    const records = trimmed
+      ? await this.searchRecords(trimmed, {
+          limit: capped,
+          since: options.since,
+          until: options.until,
+        })
+      : { hits: [] as RecordHit[], distillates: [] };
+
+    const queryVec = trimmed ? fixtureEmbedFromText(trimmed) : null;
     const hits: MemorySearchHit[] = [
-      ...distillates.map((d) => ({
-        kind: "distillate" as const,
-        id: d.id,
-        score: 0.75,
-        title: `${d.kind}:${d.subjectType}/${d.subjectId}`,
-        snippet: (d.content ?? "").slice(0, 280),
-        sessionId: d.subjectType === "session" ? d.subjectId : undefined,
-        distillateKind: d.kind,
-        subjectType: d.subjectType,
-        subjectId: d.subjectId,
-      })),
+      ...distillates.map((d) => {
+        let score =
+          trimmed &&
+          (textMatchesQuery(d.content, trimmed) ||
+            textMatchesQuery(JSON.stringify(d.metadata), trimmed))
+            ? 0.72
+            : 0.55;
+        const emb = d.embedding?.length
+          ? d.embedding
+          : fixtureEmbedFromText(d.content ?? "");
+        if (queryVec) {
+          score = Math.max(score, cosineSimilarity(queryVec, emb));
+        }
+        return {
+          kind: "distillate" as const,
+          id: d.id,
+          score,
+          title: `${d.kind}:${d.subjectType}/${d.subjectId}`,
+          snippet: (d.content ?? "").slice(0, 280),
+          sessionId: d.subjectType === "session" ? d.subjectId : undefined,
+          distillateKind: d.kind,
+          subjectType: d.subjectType,
+          subjectId: d.subjectId,
+        };
+      }),
       ...records.hits.map((r) => ({
         kind: "record" as const,
         id: r.id,
-        score: 0.5,
+        score: 0.48,
         title:
           (typeof r.payload.title === "string" && r.payload.title) ||
           (typeof r.payload.subject === "string" && r.payload.subject) ||
