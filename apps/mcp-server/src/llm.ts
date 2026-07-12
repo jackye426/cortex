@@ -104,6 +104,61 @@ function openRouterHeaders(): Record<string, string> {
   };
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryAfterMs(res: Response, errBody: string): number | undefined {
+  const header = res.headers.get("Retry-After");
+  if (header) {
+    const sec = Number(header);
+    if (Number.isFinite(sec) && sec > 0) return Math.ceil(sec * 1000);
+  }
+  try {
+    const parsed = JSON.parse(errBody) as {
+      error?: {
+        metadata?: {
+          retry_after_seconds?: number;
+          retry_after_seconds_raw?: number;
+        };
+      };
+    };
+    const sec =
+      parsed.error?.metadata?.retry_after_seconds ??
+      parsed.error?.metadata?.retry_after_seconds_raw;
+    if (typeof sec === "number" && sec > 0) return Math.ceil(sec * 1000);
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  label: string,
+): Promise<Response> {
+  const maxAttempts = Number(process.env.CORTEX_LLM_MAX_RETRIES ?? "6");
+  let delayMs = 2000;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(url, init);
+    if (res.ok) return res;
+    const retryable =
+      res.status === 429 || res.status === 408 || res.status >= 500;
+    const errBody = await res.text();
+    if (!retryable || attempt >= maxAttempts) {
+      throw new Error(`${label} ${res.status}: ${errBody.slice(0, 400)}`);
+    }
+    const wait = retryAfterMs(res, errBody) ?? Math.min(delayMs, 60_000);
+    console.warn(
+      `[llm] ${label} ${res.status} attempt ${attempt}/${maxAttempts}; retry in ${wait}ms`,
+    );
+    await sleep(wait);
+    delayMs = Math.min(delayMs * 2, 60_000);
+  }
+  throw new Error(`${label}: exhausted retries`);
+}
+
 export async function chatJsonCompletion(args: {
   system: string;
   user: string;
@@ -123,15 +178,19 @@ export async function chatJsonCompletion(args: {
   };
   if (provider) body.provider = provider;
 
-  const res = await fetch(`${baseUrl()}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey()}`,
-      "Content-Type": "application/json",
-      ...openRouterHeaders(),
+  const res = await fetchWithRetry(
+    `${baseUrl()}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey()}`,
+        "Content-Type": "application/json",
+        ...openRouterHeaders(),
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+    "chat completions",
+  );
   if (!res.ok) {
     const errBody = await res.text();
     throw new Error(`chat completions ${res.status}: ${errBody.slice(0, 400)}`);
@@ -147,18 +206,22 @@ export async function chatJsonCompletion(args: {
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
   const model = embeddingModel();
-  const res = await fetch(`${baseUrl()}/embeddings`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey()}`,
-      "Content-Type": "application/json",
-      ...openRouterHeaders(),
+  const res = await fetchWithRetry(
+    `${baseUrl()}/embeddings`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey()}`,
+        "Content-Type": "application/json",
+        ...openRouterHeaders(),
+      },
+      body: JSON.stringify({
+        model,
+        input: texts.map((t) => t.slice(0, 8000)),
+      }),
     },
-    body: JSON.stringify({
-      model,
-      input: texts.map((t) => t.slice(0, 8000)),
-    }),
-  });
+    "embeddings",
+  );
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`embeddings ${res.status}: ${body.slice(0, 400)}`);
