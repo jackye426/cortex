@@ -697,54 +697,86 @@ export class SupabaseStore implements CortexStore {
     ).slice(0, capped);
   }
 
+  private async loadDistilledSessionIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    const pageSize = 500;
+    let offset = 0;
+    while (true) {
+      let q = this.client
+        .from("distillates")
+        .select("subject_id")
+        .eq("subject_type", "session")
+        .eq("kind", "summary")
+        .range(offset, offset + pageSize - 1);
+      q = this.applyOwner(q);
+      const { data, error } = await q;
+      if (error) {
+        console.warn(
+          "[store/supabase] loadDistilledSessionIds:",
+          error.message,
+        );
+        break;
+      }
+      const rows = data ?? [];
+      for (const row of rows) {
+        ids.add(
+          String((row as { subject_id?: string }).subject_id ?? ""),
+        );
+      }
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
+    return ids;
+  }
+
   async listSessionsForDistillate(
     limit = 50,
     options: { skipDistilled?: boolean } = {},
   ): Promise<SessionEnvelopeInput[]> {
     const capped = Math.max(1, Math.min(limit, 200));
     const skipDistilled = options.skipDistilled !== false;
-    const fetchN = skipDistilled ? Math.min(capped * 5, 500) : capped;
-    let q = this.client
-      .from("sessions")
-      .select(
-        "id, source_id, source_session_id, title, workspace, started_at, ended_at, metadata",
-      )
-      .order("started_at", { ascending: false, nullsFirst: false })
-      .limit(fetchN);
-    q = this.applyOwner(q);
-    const { data, error } = await q;
-    if (error) {
-      console.warn(
-        "[store/supabase] listSessionsForDistillate:",
-        error.message,
-      );
-      return [];
-    }
+    const distilledIds = skipDistilled
+      ? await this.loadDistilledSessionIds()
+      : new Set<string>();
 
-    let rows = (data ?? []) as Record<string, unknown>[];
-    if (skipDistilled && rows.length > 0) {
-      const ids = rows.map((r) => String(r.id));
-      let dq = this.client
-        .from("distillates")
-        .select("subject_id")
-        .eq("subject_type", "session")
-        .eq("kind", "summary")
-        .in("subject_id", ids);
-      dq = this.applyOwner(dq);
-      const { data: doneRows } = await dq;
-      const done = new Set(
-        (doneRows ?? []).map((r) =>
-          String((r as { subject_id?: string }).subject_id ?? ""),
-        ),
-      );
-      rows = rows.filter((r) => !done.has(String(r.id))).slice(0, capped);
-    } else {
-      rows = rows.slice(0, capped);
+    const picked: Record<string, unknown>[] = [];
+    const pageSize = 100;
+    let offset = 0;
+    const maxScan = 5000;
+
+    while (picked.length < capped && offset < maxScan) {
+      let q = this.client
+        .from("sessions")
+        .select(
+          "id, source_id, source_session_id, title, workspace, started_at, ended_at, metadata",
+        )
+        .order("started_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + pageSize - 1);
+      q = this.applyOwner(q);
+      const { data, error } = await q;
+      if (error) {
+        console.warn(
+          "[store/supabase] listSessionsForDistillate:",
+          error.message,
+        );
+        break;
+      }
+      const rows = (data ?? []) as Record<string, unknown>[];
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        const id = String(row.id);
+        if (!skipDistilled || !distilledIds.has(id)) {
+          picked.push(row);
+          if (picked.length >= capped) break;
+        }
+      }
+      offset += pageSize;
+      if (rows.length < pageSize) break;
     }
 
     const envelopes: SessionEnvelopeInput[] = [];
-    for (const row of rows) {
-      const s = row as Record<string, unknown>;
+    for (const row of picked) {
+      const s = row;
       const id = String(s.id);
       const [{ data: messages }, { data: tools }] = await Promise.all([
         this.client
