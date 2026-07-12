@@ -9,9 +9,9 @@ Personal AI/session vault, canonical store, and remote MCP. **Collectors run nat
 | Area | State |
 |------|--------|
 | Collectors (Windows) | Claude/Codex/Cursor sessions, GitHub, Google Workspace, Calibre, bookmarks, Spotify, YouTube API |
-| Ingest API + MCP | Railway; bearer auth; work-biased `list_recent_work`, payload `search_records`, `search_memory` |
-| Distillates | OpenAI-compatible HTTP (`OPENAI_API_KEY`); embed on write; project_brief job |
-| Twin (D1–D5) | Entities graph + stubs for priority/decision/self_model/allocator — see [docs/twin.md](docs/twin.md) |
+| Ingest API + MCP | Railway; bearer auth; work-biased `list_recent_work`, payload `search_records`, hybrid `search_memory` |
+| Distillates | OpenAI-compatible HTTP (`OPENAI_API_KEY`); embed on write; `pnpm embed-backfill` for existing rows |
+| Twin (D1–D5) | Entities, project briefs, priority_vs_actual, decisions, self_model, allocator_context — see [docs/twin.md](docs/twin.md) |
 | Parallel data | YouTube Takeout + ChatGPT export when ZIPs ready — does not block MCP |
 
 **Phases (history):** 0 scaffold → 1 AI adapters → 2b Calibre/browser → 3 ChatGPT → 4 GitHub → 5 Google → 5b Spotify/YouTube → 6 MCP → 7 hardening. Details in `docs/`.
@@ -176,7 +176,8 @@ See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo (including `20
 | `pnpm build` | Build all packages/apps |
 | `pnpm dev:api` | Run ingest API (tsx watch) |
 | `pnpm dev:mcp` | Run remote MCP server (tsx watch) |
-| `pnpm distillate` | Session distillates (LLM or stub); `--project-brief` for B3 |
+| `pnpm distillate` | Session distillates (LLM or stub); `--project-brief`, `--seed-entities`, `--priority-vs-actual`, `--self-model` |
+| `pnpm embed-backfill` | Embed existing distillates without re-LLM |
 | `pnpm dev:collector` | Run collector daemon (Google incremental sync) |
 | `pnpm pm2:start` | Start API + MCP + collector via pm2 |
 | `pnpm backfill` | Backfill → ingest |

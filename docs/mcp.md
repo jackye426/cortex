@@ -58,14 +58,25 @@ Call `cortex_help` from any client, or follow:
 | `get_email_thread` | Gmail thread by `threadId` |
 | `get_calendar_range` | Calendar events in an ISO range (**the** schedule tool) |
 | `get_file_summary` | Drive/file summary by id |
-| `list_entities` / `upsert_entity` / `link_entity` / `get_entity_links` | Project graph (twin D1) |
-| `capture_decision` | Light decision/outcome capture (D3) |
+| `list_entities` / `upsert_entity` / `link_entity` / `get_entity_links` / `seed_entities` | Project graph (twin D1) |
+| `capture_decision` / `list_decisions` | Decision/outcome capture + list (D3) |
+| `priority_vs_actual` | Week effort attribution distillate (D2) |
+| `refresh_self_model` | Theory-of-self distillate (D4) |
+| `allocator_context` | 3h/3w/3y prompt seed over D1–D4 (D5) |
 
-Fixture mode includes sample sessions, a Gmail thread (`thread-alpha`), a calendar event, and a Drive file so tools work without a linked Supabase project.
+Fixture mode includes sample sessions (with embeddings), a decision distillate, a Gmail thread (`thread-alpha`), a calendar event, and a Drive file so tools work without a linked Supabase project.
 
-## Distillate worker
+## Distillate worker + RAG
 
 LLM session distillates when `OPENAI_API_KEY` is set (optional `OPENAI_BASE_URL`, `CORTEX_DISTILLATE_MODEL`). Falls back to heuristic stub otherwise. Embeddings on write use `CORTEX_EMBEDDING_MODEL` (default `text-embedding-3-small`) into `distillates.embedding` — **not** full raw records.
+
+**Embed backfill** (no re-LLM): for distillates written before embeddings were enabled, or after model changes:
+
+```powershell
+pnpm embed-backfill -- --dry-run --limit=50
+pnpm embed-backfill -- --limit=50
+pnpm embed-backfill -- --force --limit=10
+```
 
 **OpenRouter pinning:** when `OPENAI_BASE_URL` is OpenRouter, distillate chat defaults to `provider.only: ["Morph"]`, `zdr: true`, and `data_collection: "deny"` (override with `CORTEX_LLM_*`). Embeddings are not Morph-pinned.
 
@@ -75,6 +86,9 @@ LLM session distillates when `OPENAI_API_KEY` is set (optional `OPENAI_BASE_URL`
 pnpm --filter @cortex/mcp-server distillate -- --dry-run --limit=5
 pnpm --filter @cortex/mcp-server distillate -- --limit=10
 pnpm --filter @cortex/mcp-server distillate -- --project-brief --dry-run
+pnpm --filter @cortex/mcp-server distillate -- --seed-entities --dry-run
+pnpm --filter @cortex/mcp-server distillate -- --priority-vs-actual --dry-run
+pnpm --filter @cortex/mcp-server distillate -- --self-model --dry-run
 ```
 
 Or HTTP (same bearer):
@@ -87,9 +101,13 @@ curl -Method POST http://localhost:8790/v1/distillate `
 curl -Method POST http://localhost:8790/v1/project-brief `
   -Headers @{ Authorization = "Bearer local-dev-token"; "Content-Type" = "application/json" } `
   -Body '{"limitSessions":20,"dryRun":true}'
+
+curl -Method POST http://localhost:8790/v1/embed-backfill `
+  -Headers @{ Authorization = "Bearer local-dev-token"; "Content-Type" = "application/json" } `
+  -Body '{"limit":50,"dryRun":true}'
 ```
 
-Migration: `supabase/migrations/20260712200000_distillate_embeddings_search.sql` (`vector` extension + search RPCs). Apply with `npx supabase db push` when the project is linked.
+Migration: `supabase/migrations/20260712200000_distillate_embeddings_search.sql` (`vector` extension + search RPCs). Apply with `npx supabase db push` when the project is linked. `search_memory` passes a query embedding into `cortex_search_memory` when `OPENAI_API_KEY` is set.
 
 Twin extension points: [twin.md](twin.md).
 

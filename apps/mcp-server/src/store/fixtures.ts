@@ -8,6 +8,7 @@ import type {
   SessionDetail,
   SessionEnvelopeInput,
 } from "./types.js";
+import { fixtureEmbedFromText } from "./search-helpers.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 
@@ -50,7 +51,7 @@ export const FIXTURE_SESSIONS: SessionDetail[] = [
     title: "MCP phase scaffolding",
     workspace: "Cortex",
     startedAt: "2026-07-11T10:00:00.000Z",
-    endedAt: null,
+    endedAt: "2026-07-11T12:00:00.000Z",
     metadata: { fixture: true },
     messages: [
       {
@@ -145,24 +146,77 @@ export const FIXTURE_RECORDS: RecordHit[] = [
   },
 ];
 
+const summary1 =
+  "Session focused on ingest API bearer auth using CORTEX_INGEST_TOKEN for Cortex vault writes.";
+const summary2 =
+  "Built remote MCP search_memory and search_records scaffolding for Cortex twin retrieval.";
+
 export let fixtureDistillates: DistillateRow[] = [
   {
     id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
     subjectType: "session",
     subjectId: FIXTURE_SESSIONS[0]!.id,
     kind: "summary",
-    content:
-      "Session focused on ingest API bearer auth using CORTEX_INGEST_TOKEN.",
-    embeddingRef: null,
+    content: summary1,
+    embeddingRef: "fixture:hash",
+    embedding: fixtureEmbedFromText(summary1),
     model: "fixture-stub",
-    metadata: { fixture: true },
+    metadata: {
+      fixture: true,
+      projects: ["Cortex"],
+      repos: ["cortex"],
+      nextActions: ["Deploy MCP with bearer auth"],
+      commercialVsTech: "tech",
+    },
     createdAt: "2026-07-10T15:31:00.000Z",
     updatedAt: "2026-07-10T15:31:00.000Z",
+  },
+  {
+    id: "f2222222-2222-4222-8222-222222222222",
+    subjectType: "session",
+    subjectId: FIXTURE_SESSIONS[1]!.id,
+    kind: "summary",
+    content: summary2,
+    embeddingRef: "fixture:hash",
+    embedding: fixtureEmbedFromText(summary2),
+    model: "fixture-stub",
+    metadata: {
+      fixture: true,
+      projects: ["Cortex", "MCP"],
+      repos: ["cortex"],
+      nextActions: ["Wire hybrid search_memory"],
+      commercialVsTech: "tech",
+    },
+    createdAt: "2026-07-11T12:05:00.000Z",
+    updatedAt: "2026-07-11T12:05:00.000Z",
+  },
+  {
+    id: "f3333333-3333-4333-8333-333333333333",
+    subjectType: "note",
+    subjectId: "33333333-3333-4333-8333-333333333333",
+    kind: "decision",
+    content:
+      "Ship distillate RAG before Obsidian\n\nPrefer pgvector on distillates over an Obsidian middle vault.",
+    embeddingRef: "fixture:hash",
+    embedding: fixtureEmbedFromText(
+      "Ship distillate RAG before Obsidian Prefer pgvector",
+    ),
+    model: "fixture-capture",
+    metadata: {
+      fixture: true,
+      title: "Ship distillate RAG before Obsidian",
+      capture: true,
+      relatedEntityKey: "cortex",
+      extension: "D3",
+    },
+    createdAt: "2026-07-11T13:00:00.000Z",
+    updatedAt: "2026-07-11T13:00:00.000Z",
   },
 ];
 
 // Attach distillate to first session for get_session demos
 FIXTURE_SESSIONS[0]!.distillate = fixtureDistillates[0]!;
+FIXTURE_SESSIONS[1]!.distillate = fixtureDistillates[1]!;
 
 export function matchQuery(haystack: string, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -321,6 +375,22 @@ export const fixtureEntities: import("./types.js").EntityRow[] = [
     canonicalKey: "cortex",
     displayName: "Cortex",
     metadata: { fixture: true },
+    createdAt: "2026-07-10T12:00:00.000Z",
+  },
+  {
+    id: "e2222222-2222-4222-8222-222222222222",
+    entityType: "ambition",
+    canonicalKey: "personal-executive-twin",
+    displayName: "Personal Executive Twin",
+    metadata: { fixture: true, weight: 1 },
+    createdAt: "2026-07-10T12:00:00.000Z",
+  },
+  {
+    id: "e3333333-3333-4333-8333-333333333333",
+    entityType: "priority",
+    canonicalKey: "ship-rag-memory",
+    displayName: "Ship RAG memory",
+    metadata: { fixture: true, weight: 0.6 },
     createdAt: "2026-07-10T12:00:00.000Z",
   },
 ];

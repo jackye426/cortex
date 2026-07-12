@@ -19,7 +19,12 @@ import {
   resolveMcpToken,
 } from "./env.js";
 import { logMcpAudit } from "./audit.js";
-import { runProjectBriefJob } from "./project-brief.js";
+import {
+  runEmbedBackfill,
+  runPriorityVsActual,
+  runProjectBriefJob,
+  seedEntitiesFromDistillates,
+} from "./project-brief.js";
 import { createStore } from "./store/index.js";
 import { registerCortexTools } from "./tools.js";
 loadDotEnv();
@@ -167,6 +172,106 @@ app.post("/v1/project-brief", async (c) => {
     projectKeys,
   });
   return c.json({ ok: true, ...result });
+});
+
+/** Embed existing distillates without re-LLM (Track C backfill). */
+app.post("/v1/embed-backfill", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      {
+        error:
+          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+      },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let limit = 50;
+  let dryRun = false;
+  let force = false;
+  try {
+    const body = (await c.req.json()) as {
+      limit?: number;
+      dryRun?: boolean;
+      force?: boolean;
+    };
+    if (typeof body.limit === "number" && body.limit > 0) {
+      limit = Math.floor(body.limit);
+    }
+    dryRun = Boolean(body.dryRun);
+    force = Boolean(body.force);
+  } catch {
+    // empty body ok
+  }
+
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/embed-backfill",
+    method: "POST",
+    metadata: { limit, dryRun, force },
+  });
+
+  const result = await runEmbedBackfill(store, { limit, dryRun, force });
+  return c.json({ ok: true, ...result });
+});
+
+/** Twin: seed entities / priority week (same bearer). */
+app.post("/v1/twin", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      {
+        error:
+          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+      },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let job = "seed-entities";
+  let dryRun = false;
+  let limit = 80;
+  try {
+    const body = (await c.req.json()) as {
+      job?: string;
+      dryRun?: boolean;
+      limit?: number;
+    };
+    if (typeof body.job === "string") job = body.job;
+    dryRun = Boolean(body.dryRun);
+    if (typeof body.limit === "number" && body.limit > 0) {
+      limit = Math.floor(body.limit);
+    }
+  } catch {
+    // empty body ok
+  }
+
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/twin",
+    method: "POST",
+    metadata: { job, dryRun, limit },
+  });
+
+  if (job === "priority-vs-actual") {
+    const result = await runPriorityVsActual(store, { dryRun });
+    return c.json({ ok: true, job, ...result });
+  }
+  if (job === "seed-entities") {
+    const result = await seedEntitiesFromDistillates(store, { dryRun, limit });
+    return c.json({ ok: true, job, ...result });
+  }
+  return c.json(
+    { error: "unknown job", jobs: ["seed-entities", "priority-vs-actual"] },
+    400,
+  );
 });
 
 app.all("/mcp", async (c) => {
