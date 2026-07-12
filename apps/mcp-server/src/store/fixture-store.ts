@@ -1,11 +1,23 @@
 import { randomUUID } from "node:crypto";
 import {
+  CALENDAR_TYPE,
+  EMPTY_MEMORY_HINT,
+  EMPTY_SEARCH_HINT,
+  horizonCutoffIso,
+  isWorkRecordType,
+  resolveExcludeTypes,
+  textMatchesQuery,
+  withinHorizon,
+} from "./search-helpers.js";
+import {
   FIXTURE_RECORDS,
   FIXTURE_SESSIONS,
   calendarFromRecords,
   emailThreadFromRecords,
   fileFromRecords,
   fixtureDistillates,
+  fixtureEntities,
+  fixtureEntityLinks,
   matchQuery,
   recordToRecent,
   sessionToEnvelope,
@@ -16,11 +28,21 @@ import type {
   CortexStore,
   DistillateRow,
   EmailThread,
+  EntityLinkRow,
+  EntityRow,
   FileSummary,
+  LinkEntityInput,
+  ListRecentWorkOptions,
+  MemorySearchHit,
+  MemorySearchOptions,
+  MemorySearchResult,
   RecentWorkItem,
   RecordHit,
+  SearchRecordsOptions,
+  SearchRecordsResult,
   SessionDetail,
   SessionEnvelopeInput,
+  UpsertEntityInput,
 } from "./types.js";
 
 /**
@@ -30,9 +52,29 @@ import type {
 export class FixtureStore implements CortexStore {
   readonly mode = "fixture" as const;
 
-  async searchRecords(query: string, limit = 20): Promise<RecordHit[]> {
-    const hits = FIXTURE_RECORDS.filter((r) =>
-      matchQuery(
+  async searchRecords(
+    query: string,
+    options: SearchRecordsOptions = {},
+  ): Promise<SearchRecordsResult> {
+    const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
+    const excludeTypes = new Set(resolveExcludeTypes(options));
+    let hits = FIXTURE_RECORDS.filter((r) => {
+      if (excludeTypes.has(r.recordType)) return false;
+      if (
+        options.recordTypes?.length &&
+        !options.recordTypes.includes(r.recordType)
+      ) {
+        return false;
+      }
+      if (
+        options.sources?.length &&
+        !options.sources.includes(r.sourceId)
+      ) {
+        return false;
+      }
+      if (options.since && (r.occurredAt ?? "") < options.since) return false;
+      if (options.until && (r.occurredAt ?? "") > options.until) return false;
+      return matchQuery(
         JSON.stringify({
           type: r.recordType,
           source: r.sourceId,
@@ -40,9 +82,34 @@ export class FixtureStore implements CortexStore {
           payload: r.payload,
         }),
         query,
-      ),
-    );
-    return hits.slice(0, Math.max(1, Math.min(limit, 100)));
+      );
+    }).slice(0, capped);
+
+    const distillates = await this.searchDistillates(query, Math.min(capped, 10));
+    const hint =
+      hits.length === 0 && distillates.length === 0
+        ? EMPTY_SEARCH_HINT
+        : undefined;
+    return { hits, distillates, hint };
+  }
+
+  async searchDistillates(
+    query: string,
+    limit = 20,
+    kinds?: string[],
+  ): Promise<DistillateRow[]> {
+    const capped = Math.max(1, Math.min(limit, 100));
+    return fixtureDistillates
+      .filter((d) => {
+        if (kinds?.length && !kinds.includes(d.kind)) return false;
+        return (
+          textMatchesQuery(d.content, query) ||
+          textMatchesQuery(JSON.stringify(d.metadata), query) ||
+          textMatchesQuery(d.kind, query) ||
+          !query.trim()
+        );
+      })
+      .slice(0, capped);
   }
 
   async getSession(sessionId: string): Promise<SessionDetail | null> {
@@ -61,15 +128,58 @@ export class FixtureStore implements CortexStore {
     return { ...session, distillate };
   }
 
-  async listRecentWork(limit = 20): Promise<RecentWorkItem[]> {
-    const items: RecentWorkItem[] = [
-      ...FIXTURE_SESSIONS.map(sessionToRecent),
-      ...FIXTURE_RECORDS.map(recordToRecent),
-    ];
+  async listRecentWork(
+    options: ListRecentWorkOptions = {},
+  ): Promise<RecentWorkItem[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
+    const kinds = options.kinds;
+    const includeSessions = !kinds || kinds.includes("session");
+    const includeRecords = !kinds || kinds.includes("record");
+    const workMode =
+      options.workMode ?? (kinds === undefined || kinds.length === 0);
+    const excludeTypes = new Set(
+      options.excludeTypes ?? (workMode ? [CALENDAR_TYPE] : []),
+    );
+    const cutoff = horizonCutoffIso(options.horizonDays);
+
+    const items: RecentWorkItem[] = [];
+
+    if (includeSessions) {
+      for (const s of FIXTURE_SESSIONS) {
+        const recent = sessionToRecent(s);
+        if (!withinHorizon(recent.occurredAt, cutoff)) continue;
+        const d = fixtureDistillates.find(
+          (x) =>
+            x.subjectType === "session" &&
+            x.subjectId === s.id &&
+            x.kind === "summary",
+        );
+        recent.distillateSummary = d?.content?.slice(0, 180) ?? null;
+        items.push(recent);
+      }
+    }
+
+    if (includeRecords) {
+      for (const r of FIXTURE_RECORDS) {
+        if (excludeTypes.has(r.recordType)) continue;
+        if (
+          options.recordTypes?.length &&
+          !options.recordTypes.includes(r.recordType)
+        ) {
+          continue;
+        }
+        if (workMode && !options.recordTypes?.length && !isWorkRecordType(r.recordType)) {
+          continue;
+        }
+        if (!withinHorizon(r.occurredAt, cutoff)) continue;
+        items.push(recordToRecent(r));
+      }
+    }
+
     items.sort((a, b) =>
       (b.occurredAt ?? "").localeCompare(a.occurredAt ?? ""),
     );
-    return items.slice(0, Math.max(1, Math.min(limit, 100)));
+    return items.slice(0, capped);
   }
 
   async getEmailThread(threadId: string): Promise<EmailThread | null> {
@@ -104,8 +214,9 @@ export class FixtureStore implements CortexStore {
   }
 
   async upsertDistillate(
-    row: Omit<DistillateRow, "id" | "createdAt" | "updatedAt"> & {
+    row: Omit<DistillateRow, "id" | "createdAt" | "updatedAt" | "embedding"> & {
       id?: string;
+      embedding?: number[] | null;
     },
   ): Promise<DistillateRow> {
     const now = new Date().toISOString();
@@ -123,6 +234,7 @@ export class FixtureStore implements CortexStore {
         embeddingRef: row.embeddingRef,
         model: row.model,
         metadata: row.metadata,
+        embedding: row.embedding ?? prev.embedding ?? null,
         updatedAt: now,
       };
       fixtureDistillates[existingIdx] = updated;
@@ -137,10 +249,121 @@ export class FixtureStore implements CortexStore {
       embeddingRef: row.embeddingRef,
       model: row.model,
       metadata: row.metadata,
+      embedding: row.embedding ?? null,
       createdAt: now,
       updatedAt: now,
     };
     fixtureDistillates.push(created);
     return created;
+  }
+
+  async searchMemory(
+    query: string,
+    options: MemorySearchOptions = {},
+  ): Promise<MemorySearchResult> {
+    const capped = Math.max(1, Math.min(options.limit ?? 15, 50));
+    const distillates = await this.searchDistillates(
+      query,
+      capped,
+      options.kinds,
+    );
+    const records = await this.searchRecords(query, {
+      limit: capped,
+      since: options.since,
+      until: options.until,
+    });
+    const hits: MemorySearchHit[] = [
+      ...distillates.map((d) => ({
+        kind: "distillate" as const,
+        id: d.id,
+        score: 0.75,
+        title: `${d.kind}:${d.subjectType}/${d.subjectId}`,
+        snippet: (d.content ?? "").slice(0, 280),
+        sessionId: d.subjectType === "session" ? d.subjectId : undefined,
+        distillateKind: d.kind,
+        subjectType: d.subjectType,
+        subjectId: d.subjectId,
+      })),
+      ...records.hits.map((r) => ({
+        kind: "record" as const,
+        id: r.id,
+        score: 0.5,
+        title:
+          (typeof r.payload.title === "string" && r.payload.title) ||
+          (typeof r.payload.subject === "string" && r.payload.subject) ||
+          `${r.recordType}:${r.sourceRecordId}`,
+        snippet: JSON.stringify(r.payload).slice(0, 280),
+        sourceId: r.sourceId,
+        recordId: r.id,
+        recordType: r.recordType,
+      })),
+    ];
+    hits.sort((a, b) => b.score - a.score);
+    const sliced = hits.slice(0, capped);
+    return {
+      hits: sliced,
+      hint: sliced.length === 0 ? EMPTY_MEMORY_HINT : undefined,
+    };
+  }
+
+  async listEntities(
+    entityType?: string,
+    limit = 50,
+  ): Promise<EntityRow[]> {
+    return fixtureEntities
+      .filter((e) => !entityType || e.entityType === entityType)
+      .slice(0, Math.max(1, Math.min(limit, 200)));
+  }
+
+  async upsertEntity(input: UpsertEntityInput): Promise<EntityRow> {
+    const existing = fixtureEntities.find(
+      (e) =>
+        e.entityType === input.entityType &&
+        e.canonicalKey === input.canonicalKey,
+    );
+    if (existing) {
+      existing.displayName = input.displayName ?? existing.displayName;
+      existing.metadata = { ...existing.metadata, ...(input.metadata ?? {}) };
+      return existing;
+    }
+    const created: EntityRow = {
+      id: randomUUID(),
+      entityType: input.entityType,
+      canonicalKey: input.canonicalKey,
+      displayName: input.displayName ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: new Date().toISOString(),
+    };
+    fixtureEntities.push(created);
+    return created;
+  }
+
+  async linkEntity(input: LinkEntityInput): Promise<EntityLinkRow> {
+    const existing = fixtureEntityLinks.find(
+      (l) =>
+        l.entityId === input.entityId &&
+        l.linkedType === input.linkedType &&
+        l.linkedId === input.linkedId &&
+        l.relation === (input.relation ?? "related"),
+    );
+    if (existing) {
+      existing.metadata = { ...existing.metadata, ...(input.metadata ?? {}) };
+      return existing;
+    }
+    const created: EntityLinkRow = {
+      id: randomUUID(),
+      entityId: input.entityId,
+      linkedType: input.linkedType,
+      linkedId: input.linkedId,
+      relation: input.relation ?? "related",
+      metadata: input.metadata ?? {},
+      createdAt: new Date().toISOString(),
+    };
+    fixtureEntityLinks.push(created);
+    return created;
+  }
+
+  async listEntityLinks(entityId: string): Promise<EntityLinkRow[]> {
+    return fixtureEntityLinks.filter((l) => l.entityId === entityId);
   }
 }

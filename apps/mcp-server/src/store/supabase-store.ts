@@ -1,5 +1,16 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
+  CALENDAR_TYPE,
+  EMPTY_MEMORY_HINT,
+  EMPTY_SEARCH_HINT,
+  horizonCutoffIso,
+  isWorkRecordType,
+  payloadMatchesQuery,
+  resolveExcludeTypes,
+  textMatchesQuery,
+  withinHorizon,
+} from "./search-helpers.js";
+import {
   calendarFromRecords,
   emailThreadFromRecords,
   fileFromRecords,
@@ -12,11 +23,21 @@ import type {
   CortexStore,
   DistillateRow,
   EmailThread,
+  EntityLinkRow,
+  EntityRow,
   FileSummary,
+  LinkEntityInput,
+  ListRecentWorkOptions,
+  MemorySearchHit,
+  MemorySearchOptions,
+  MemorySearchResult,
   RecentWorkItem,
   RecordHit,
+  SearchRecordsOptions,
+  SearchRecordsResult,
   SessionDetail,
   SessionEnvelopeInput,
+  UpsertEntityInput,
 } from "./types.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -39,6 +60,19 @@ function mapRecord(row: Record<string, unknown>): RecordHit {
 }
 
 function mapDistillate(row: Record<string, unknown>): DistillateRow {
+  let embedding: number[] | null | undefined;
+  const rawEmb = row.embedding;
+  if (Array.isArray(rawEmb)) {
+    embedding = rawEmb.map((n) => Number(n));
+  } else if (typeof rawEmb === "string" && rawEmb.startsWith("[")) {
+    try {
+      embedding = (JSON.parse(rawEmb) as number[]).map(Number);
+    } catch {
+      embedding = null;
+    }
+  } else {
+    embedding = rawEmb == null ? null : undefined;
+  }
   return {
     id: String(row.id),
     subjectType: String(row.subject_type),
@@ -51,12 +85,52 @@ function mapDistillate(row: Record<string, unknown>): DistillateRow {
     metadata: asRecord(row.metadata),
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
+    embedding: embedding ?? null,
   };
+}
+
+function mapEntity(row: Record<string, unknown>): EntityRow {
+  return {
+    id: String(row.id),
+    entityType: String(row.entity_type),
+    canonicalKey: String(row.canonical_key),
+    displayName:
+      typeof row.display_name === "string" ? row.display_name : null,
+    metadata: asRecord(row.metadata),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
+}
+
+function mapEntityLink(row: Record<string, unknown>): EntityLinkRow {
+  return {
+    id: String(row.id),
+    entityId: String(row.entity_id),
+    linkedType: String(row.linked_type),
+    linkedId: String(row.linked_id),
+    relation: String(row.relation ?? "related"),
+    metadata: asRecord(row.metadata),
+    createdAt: String(row.created_at ?? new Date().toISOString()),
+  };
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 /**
  * Supabase-backed store. Requires SUPABASE_URL + service role (or anon) key.
- * Queries are intentionally simple ILIKE / range filters for Phase 6.
  */
 export class SupabaseStore implements CortexStore {
   readonly mode = "supabase" as const;
@@ -87,7 +161,6 @@ export class SupabaseStore implements CortexStore {
     return query;
   }
 
-  /** Load tombstoned target ids for record / session (cached per call batch). */
   private async loadTombstoneIds(
     targetType: "record" | "session",
   ): Promise<Set<string>> {
@@ -119,35 +192,162 @@ export class SupabaseStore implements CortexStore {
     );
   }
 
-  async searchRecords(query: string, limit = 20): Promise<RecordHit[]> {
-    const capped = Math.max(1, Math.min(limit, 100));
+  async searchRecords(
+    query: string,
+    options: SearchRecordsOptions = {},
+  ): Promise<SearchRecordsResult> {
+    const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
+    const excludeTypes = resolveExcludeTypes(options);
+    const trimmed = query.trim();
     const tombstoned = await this.loadTombstoneIds("record");
+
+    const rpcHits = await this.searchRecordsViaRpc(
+      trimmed,
+      capped,
+      options,
+      excludeTypes,
+    );
+    let hits: RecordHit[];
+    if (rpcHits) {
+      hits = this.filterTombstonedRecords(rpcHits, tombstoned).slice(0, capped);
+    } else {
+      hits = await this.searchRecordsFallback(
+        trimmed,
+        capped,
+        options,
+        excludeTypes,
+        tombstoned,
+      );
+    }
+
+    const distillates = trimmed
+      ? await this.searchDistillates(trimmed, Math.min(capped, 10))
+      : [];
+
+    const hint =
+      hits.length === 0 && distillates.length === 0
+        ? EMPTY_SEARCH_HINT
+        : undefined;
+
+    return { hits, distillates, hint };
+  }
+
+  private async searchRecordsViaRpc(
+    query: string,
+    limit: number,
+    options: SearchRecordsOptions,
+    excludeTypes: string[],
+  ): Promise<RecordHit[] | null> {
+    const { data, error } = await this.client.rpc("cortex_search_records", {
+      p_owner_id: this.ownerId ?? null,
+      p_query: query,
+      p_limit: limit,
+      p_record_types: options.recordTypes?.length
+        ? options.recordTypes
+        : null,
+      p_sources: options.sources?.length ? options.sources : null,
+      p_exclude_types: excludeTypes.length ? excludeTypes : null,
+      p_since: options.since ?? null,
+      p_until: options.until ?? null,
+    });
+    if (error) {
+      // Function may not be migrated yet — fall back silently.
+      if (!/could not find the function|PGRST202/i.test(error.message)) {
+        console.warn("[store/supabase] cortex_search_records:", error.message);
+      }
+      return null;
+    }
+    return (data ?? []).map((row: Record<string, unknown>) => mapRecord(row));
+  }
+
+  private async searchRecordsFallback(
+    query: string,
+    limit: number,
+    options: SearchRecordsOptions,
+    excludeTypes: string[],
+    tombstoned: Set<string>,
+  ): Promise<RecordHit[]> {
+    const fetchLimit = Math.min(Math.max(limit * 5, 50), 300);
     let q = this.client
       .from("records")
       .select(
         "id, source_id, source_record_id, record_type, payload, content_hash, occurred_at",
       )
       .order("occurred_at", { ascending: false, nullsFirst: false })
-      .limit(Math.min(capped + tombstoned.size, 200));
-
+      .limit(fetchLimit);
     q = this.applyOwner(q);
 
-    const trimmed = query.trim();
-    if (trimmed) {
-      q = q.or(
-        `record_type.ilike.%${trimmed}%,source_record_id.ilike.%${trimmed}%,source_id.ilike.%${trimmed}%`,
-      );
+    if (options.recordTypes?.length) {
+      q = q.in("record_type", options.recordTypes);
+    }
+    if (options.sources?.length) {
+      q = q.in("source_id", options.sources);
+    }
+    if (options.since) {
+      q = q.gte("occurred_at", options.since);
+    }
+    if (options.until) {
+      q = q.lte("occurred_at", options.until);
     }
 
     const { data, error } = await q;
     if (error) {
-      console.warn("[store/supabase] searchRecords:", error.message);
+      console.warn("[store/supabase] searchRecords fallback:", error.message);
       return [];
     }
-    return this.filterTombstonedRecords(
+
+    const exclude = new Set(excludeTypes);
+    let rows = this.filterTombstonedRecords(
       (data ?? []).map((row) => mapRecord(row as Record<string, unknown>)),
       tombstoned,
-    ).slice(0, capped);
+    ).filter((r) => !exclude.has(r.recordType));
+
+    if (query) {
+      const pattern = query.toLowerCase();
+      rows = rows.filter((r) => {
+        if (r.recordType.toLowerCase().includes(pattern)) return true;
+        if (r.sourceId.toLowerCase().includes(pattern)) return true;
+        if (r.sourceRecordId.toLowerCase().includes(pattern)) return true;
+        return payloadMatchesQuery(r.payload, query);
+      });
+    }
+
+    return rows.slice(0, limit);
+  }
+
+  async searchDistillates(
+    query: string,
+    limit = 20,
+    kinds?: string[],
+  ): Promise<DistillateRow[]> {
+    const capped = Math.max(1, Math.min(limit, 100));
+    const trimmed = query.trim();
+    let q = this.client
+      .from("distillates")
+      .select("*")
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(Math.min(capped * 3, 150));
+    q = this.applyOwner(q);
+    if (kinds?.length) {
+      q = q.in("kind", kinds);
+    }
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] searchDistillates:", error.message);
+      return [];
+    }
+    let rows = (data ?? []).map((row) =>
+      mapDistillate(row as Record<string, unknown>),
+    );
+    if (trimmed) {
+      rows = rows.filter(
+        (d) =>
+          textMatchesQuery(d.content, trimmed) ||
+          textMatchesQuery(JSON.stringify(d.metadata), trimmed) ||
+          textMatchesQuery(d.kind, trimmed),
+      );
+    }
+    return rows.slice(0, capped);
   }
 
   async getSession(sessionId: string): Promise<SessionDetail | null> {
@@ -231,68 +431,144 @@ export class SupabaseStore implements CortexStore {
     };
   }
 
-  async listRecentWork(limit = 20): Promise<RecentWorkItem[]> {
-    const capped = Math.max(1, Math.min(limit, 100));
+  async listRecentWork(
+    options: ListRecentWorkOptions = {},
+  ): Promise<RecentWorkItem[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
+    const kinds = options.kinds;
+    const includeSessions = !kinds || kinds.includes("session");
+    const includeRecords = !kinds || kinds.includes("record");
+    const workMode =
+      options.workMode ?? (kinds === undefined || kinds.length === 0);
+    const excludeTypes = new Set(
+      options.excludeTypes ?? (workMode ? [CALENDAR_TYPE] : []),
+    );
+    const cutoff = horizonCutoffIso(options.horizonDays);
+    const fetchN = capped + 40;
+
     const [tombstonedRecords, tombstonedSessions] = await Promise.all([
       this.loadTombstoneIds("record"),
       this.loadTombstoneIds("session"),
     ]);
-    let sessionsQ = this.client
-      .from("sessions")
-      .select(
-        "id, source_id, source_session_id, title, started_at, ended_at",
-      )
-      .order("started_at", { ascending: false, nullsFirst: false })
-      .limit(capped + 20);
-    sessionsQ = this.applyOwner(sessionsQ);
 
-    let recordsQ = this.client
-      .from("records")
-      .select(
-        "id, source_id, source_record_id, record_type, payload, content_hash, occurred_at",
-      )
-      .order("occurred_at", { ascending: false, nullsFirst: false })
-      .limit(capped + 20);
-    recordsQ = this.applyOwner(recordsQ);
+    const sessionPromise = includeSessions
+      ? (async () => {
+          let sessionsQ = this.client
+            .from("sessions")
+            .select(
+              "id, source_id, source_session_id, title, started_at, ended_at",
+            )
+            .order("started_at", { ascending: false, nullsFirst: false })
+            .limit(fetchN);
+          sessionsQ = this.applyOwner(sessionsQ);
+          const { data } = await sessionsQ;
+          return data ?? [];
+        })()
+      : Promise.resolve([]);
 
-    const [{ data: sessions }, { data: records }] = await Promise.all([
-      sessionsQ,
-      recordsQ,
+    const recordsPromise = includeRecords
+      ? (async () => {
+          let recordsQ = this.client
+            .from("records")
+            .select(
+              "id, source_id, source_record_id, record_type, payload, content_hash, occurred_at",
+            )
+            .order("occurred_at", { ascending: false, nullsFirst: false })
+            .limit(fetchN);
+          recordsQ = this.applyOwner(recordsQ);
+          if (options.recordTypes?.length) {
+            recordsQ = recordsQ.in("record_type", options.recordTypes);
+          }
+          if (cutoff) {
+            recordsQ = recordsQ.lte("occurred_at", cutoff);
+          }
+          const { data } = await recordsQ;
+          return data ?? [];
+        })()
+      : Promise.resolve([]);
+
+    const distillatePromise = includeSessions
+      ? (async () => {
+          let dq = this.client
+            .from("distillates")
+            .select("subject_id, content, kind")
+            .eq("subject_type", "session")
+            .eq("kind", "summary")
+            .order("updated_at", { ascending: false })
+            .limit(fetchN);
+          dq = this.applyOwner(dq);
+          const { data } = await dq;
+          return data ?? [];
+        })()
+      : Promise.resolve([]);
+
+    const [sessions, records, distillateRows] = await Promise.all([
+      sessionPromise,
+      recordsPromise,
+      distillatePromise,
     ]);
 
-    const items: RecentWorkItem[] = [
-      ...(sessions ?? [])
-        .filter((row) => {
-          const s = row as Record<string, unknown>;
-          const id = String(s.id);
-          return (
-            !tombstonedSessions.has(id) &&
-            !tombstonedSessions.has(String(s.source_session_id))
-          );
-        })
-        .map((row) => {
-          const s = row as Record<string, unknown>;
-          return sessionToRecent({
-            id: String(s.id),
-            sourceId: String(s.source_id),
-            sourceSessionId: String(s.source_session_id),
-            title: typeof s.title === "string" ? s.title : null,
-            workspace: null,
-            startedAt: typeof s.started_at === "string" ? s.started_at : null,
-            endedAt: typeof s.ended_at === "string" ? s.ended_at : null,
-            metadata: {},
-            messages: [],
-            toolCalls: [],
-            distillate: null,
-          });
-        }),
-      ...this.filterTombstonedRecords(
-        (records ?? []).map((row) =>
-          mapRecord(row as Record<string, unknown>),
-        ),
-        tombstonedRecords,
-      ).map((row) => recordToRecent(row)),
-    ];
+    const distillateBySession = new Map<string, string>();
+    for (const row of distillateRows) {
+      const r = row as Record<string, unknown>;
+      const sid = String(r.subject_id ?? "");
+      const content = typeof r.content === "string" ? r.content : "";
+      if (sid && content && !distillateBySession.has(sid)) {
+        distillateBySession.set(sid, content.slice(0, 180));
+      }
+    }
+
+    const items: RecentWorkItem[] = [];
+
+    for (const row of sessions) {
+      const s = row as Record<string, unknown>;
+      const id = String(s.id);
+      if (
+        tombstonedSessions.has(id) ||
+        tombstonedSessions.has(String(s.source_session_id))
+      ) {
+        continue;
+      }
+      const occurredAt =
+        (typeof s.ended_at === "string" && s.ended_at) ||
+        (typeof s.started_at === "string" ? s.started_at : null);
+      if (!withinHorizon(occurredAt, cutoff)) continue;
+      const recent = sessionToRecent({
+        id,
+        sourceId: String(s.source_id),
+        sourceSessionId: String(s.source_session_id),
+        title: typeof s.title === "string" ? s.title : null,
+        workspace: null,
+        startedAt: typeof s.started_at === "string" ? s.started_at : null,
+        endedAt: typeof s.ended_at === "string" ? s.ended_at : null,
+        metadata: {},
+        messages: [],
+        toolCalls: [],
+        distillate: null,
+      });
+      recent.distillateSummary = distillateBySession.get(id) ?? null;
+      items.push(recent);
+    }
+
+    const recordHits = this.filterTombstonedRecords(
+      records.map((row) => mapRecord(row as Record<string, unknown>)),
+      tombstonedRecords,
+    ).filter((r) => {
+      if (excludeTypes.has(r.recordType)) return false;
+      if (options.recordTypes?.length) {
+        return options.recordTypes.includes(r.recordType);
+      }
+      if (workMode && includeRecords) {
+        return isWorkRecordType(r.recordType);
+      }
+      return true;
+    });
+
+    for (const r of recordHits) {
+      if (!withinHorizon(r.occurredAt, cutoff)) continue;
+      items.push(recordToRecent(r));
+    }
+
     items.sort((a, b) =>
       (b.occurredAt ?? "").localeCompare(a.occurredAt ?? ""),
     );
@@ -424,33 +700,71 @@ export class SupabaseStore implements CortexStore {
       );
       return [];
     }
-    return (data ?? []).map((row) => {
+
+    const envelopes: SessionEnvelopeInput[] = [];
+    for (const row of data ?? []) {
       const s = row as Record<string, unknown>;
-      return sessionToEnvelope({
-        id: String(s.id),
+      const id = String(s.id);
+      const [{ data: messages }, { data: tools }] = await Promise.all([
+        this.client
+          .from("messages")
+          .select("content, role")
+          .eq("session_id", id)
+          .order("created_at", { ascending: true })
+          .limit(40),
+        this.client
+          .from("tool_calls")
+          .select("tool_name, args_summary")
+          .eq("session_id", id)
+          .order("created_at", { ascending: true })
+          .limit(30),
+      ]);
+      const excerpts = (messages ?? [])
+        .map((m) => {
+          const mr = m as Record<string, unknown>;
+          const content =
+            typeof mr.content === "string" ? mr.content.trim() : "";
+          if (!content) return null;
+          const role = typeof mr.role === "string" ? mr.role : "msg";
+          return `${role}: ${content.slice(0, 500)}`;
+        })
+        .filter((x): x is string => Boolean(x));
+      const toolSummaries = (tools ?? [])
+        .map((t) => {
+          const tr = t as Record<string, unknown>;
+          const name =
+            typeof tr.tool_name === "string" ? tr.tool_name : "tool";
+          const args =
+            typeof tr.args_summary === "string" ? tr.args_summary : "";
+          return args ? `${name}(${args.slice(0, 120)})` : name;
+        })
+        .filter(Boolean);
+
+      envelopes.push({
         sourceId: String(s.source_id),
         sourceSessionId: String(s.source_session_id),
         title: typeof s.title === "string" ? s.title : null,
         workspace: typeof s.workspace === "string" ? s.workspace : null,
         startedAt: typeof s.started_at === "string" ? s.started_at : null,
         endedAt: typeof s.ended_at === "string" ? s.ended_at : null,
-        metadata: asRecord(s.metadata),
-        messages: [],
-        toolCalls: [],
-        distillate: null,
+        excerpts,
+        toolSummaries,
+        metadata: { ...asRecord(s.metadata), sessionId: id },
       });
-    });
+    }
+    return envelopes;
   }
 
   async upsertDistillate(
-    row: Omit<DistillateRow, "id" | "createdAt" | "updatedAt"> & {
+    row: Omit<DistillateRow, "id" | "createdAt" | "updatedAt" | "embedding"> & {
       id?: string;
+      embedding?: number[] | null;
     },
   ): Promise<DistillateRow> {
     const now = new Date().toISOString();
     const ownerId =
       this.ownerId ?? "00000000-0000-4000-8000-000000000001";
-    const payload = {
+    const payload: Record<string, unknown> = {
       owner_id: ownerId,
       subject_type: row.subjectType,
       subject_id: row.subjectId,
@@ -461,6 +775,12 @@ export class SupabaseStore implements CortexStore {
       metadata: row.metadata,
       updated_at: now,
     };
+    if (row.embedding !== undefined) {
+      payload.embedding =
+        row.embedding === null
+          ? null
+          : `[${row.embedding.join(",")}]`;
+    }
 
     const { data, error } = await this.client
       .from("distillates")
@@ -471,7 +791,6 @@ export class SupabaseStore implements CortexStore {
 
     if (error) {
       console.warn("[store/supabase] upsertDistillate:", error.message);
-      // Soft no-op shape when write fails (e.g. RLS / missing table)
       return {
         id: row.id ?? "noop",
         subjectType: row.subjectType,
@@ -483,8 +802,239 @@ export class SupabaseStore implements CortexStore {
         metadata: { ...row.metadata, writeError: error.message },
         createdAt: now,
         updatedAt: now,
+        embedding: row.embedding ?? null,
       };
     }
     return mapDistillate(data as Record<string, unknown>);
+  }
+
+  async searchMemory(
+    query: string,
+    options: MemorySearchOptions = {},
+  ): Promise<MemorySearchResult> {
+    const capped = Math.max(1, Math.min(options.limit ?? 15, 50));
+    const trimmed = query.trim();
+    const hits: MemorySearchHit[] = [];
+
+    // Prefer RPC hybrid when available
+    const { data: rpcData, error: rpcError } = await this.client.rpc(
+      "cortex_search_memory",
+      {
+        p_owner_id: this.ownerId ?? null,
+        p_query: trimmed,
+        p_limit: capped,
+        p_kinds: options.kinds?.length ? options.kinds : null,
+      },
+    );
+
+    if (!rpcError && Array.isArray(rpcData)) {
+      for (const row of rpcData as Record<string, unknown>[]) {
+        hits.push({
+          kind: String(row.kind) === "record" ? "record" : "distillate",
+          id: String(row.id),
+          score: Number(row.score ?? 0),
+          title: String(row.title ?? ""),
+          snippet: String(row.snippet ?? ""),
+          sourceId:
+            typeof row.source_id === "string" ? row.source_id : undefined,
+          sessionId:
+            typeof row.session_id === "string" ? row.session_id : undefined,
+          recordId:
+            typeof row.record_id === "string" ? row.record_id : undefined,
+          recordType:
+            typeof row.record_type === "string" ? row.record_type : undefined,
+          distillateKind:
+            typeof row.distillate_kind === "string"
+              ? row.distillate_kind
+              : undefined,
+          subjectType:
+            typeof row.subject_type === "string" ? row.subject_type : undefined,
+          subjectId:
+            typeof row.subject_id === "string" ? row.subject_id : undefined,
+        });
+      }
+    } else {
+      if (rpcError && !/could not find the function|PGRST202/i.test(rpcError.message)) {
+        console.warn("[store/supabase] cortex_search_memory:", rpcError.message);
+      }
+      // Local hybrid: keyword distillates + records; optional vector if embeddings present
+      const [distillates, records] = await Promise.all([
+        this.searchDistillates(trimmed, capped, options.kinds),
+        this.searchRecords(trimmed, {
+          limit: capped,
+          since: options.since,
+          until: options.until,
+        }),
+      ]);
+
+      for (const d of distillates) {
+        hits.push({
+          kind: "distillate",
+          id: d.id,
+          score: 0.7,
+          title: `${d.kind}:${d.subjectType}/${d.subjectId}`,
+          snippet: (d.content ?? "").slice(0, 280),
+          sessionId: d.subjectType === "session" ? d.subjectId : undefined,
+          distillateKind: d.kind,
+          subjectType: d.subjectType,
+          subjectId: d.subjectId,
+        });
+      }
+      for (const r of records.hits) {
+        hits.push({
+          kind: "record",
+          id: r.id,
+          score: 0.5,
+          title:
+            (typeof r.payload.title === "string" && r.payload.title) ||
+            (typeof r.payload.subject === "string" && r.payload.subject) ||
+            `${r.recordType}:${r.sourceRecordId}`,
+          snippet: JSON.stringify(r.payload).slice(0, 280),
+          sourceId: r.sourceId,
+          recordId: r.id,
+          recordType: r.recordType,
+        });
+      }
+
+      // Re-rank distillates that have embeddings if query embedding provided via env worker
+      const queryEmbedding = await this.tryEmbedQuery(trimmed);
+      if (queryEmbedding) {
+        for (const h of hits) {
+          if (h.kind !== "distillate") continue;
+          const d = distillates.find((x) => x.id === h.id);
+          if (d?.embedding?.length) {
+            h.score = Math.max(
+              h.score,
+              cosineSimilarity(queryEmbedding, d.embedding),
+            );
+          }
+        }
+      }
+    }
+
+    hits.sort((a, b) => b.score - a.score);
+    const sliced = hits.slice(0, capped);
+    return {
+      hits: sliced,
+      hint: sliced.length === 0 ? EMPTY_MEMORY_HINT : undefined,
+    };
+  }
+
+  private async tryEmbedQuery(query: string): Promise<number[] | null> {
+    if (!query.trim()) return null;
+    if (!process.env.OPENAI_API_KEY?.trim()) return null;
+    try {
+      const { embedTexts } = await import("../llm.js");
+      const [vec] = await embedTexts([query.slice(0, 8000)]);
+      return vec ?? null;
+    } catch (err) {
+      console.warn(
+        "[store/supabase] embed query failed:",
+        err instanceof Error ? err.message : err,
+      );
+      return null;
+    }
+  }
+
+  async listEntities(
+    entityType?: string,
+    limit = 50,
+  ): Promise<EntityRow[]> {
+    const capped = Math.max(1, Math.min(limit, 200));
+    let q = this.client
+      .from("entities")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (entityType) q = q.eq("entity_type", entityType);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listEntities:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) => mapEntity(row as Record<string, unknown>));
+  }
+
+  async upsertEntity(input: UpsertEntityInput): Promise<EntityRow> {
+    const ownerId =
+      this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+    const payload = {
+      owner_id: ownerId,
+      entity_type: input.entityType,
+      canonical_key: input.canonicalKey,
+      display_name: input.displayName ?? null,
+      metadata: input.metadata ?? {},
+    };
+    const { data, error } = await this.client
+      .from("entities")
+      .upsert(payload, { onConflict: "owner_id,entity_type,canonical_key" })
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertEntity:", error.message);
+      return {
+        id: "noop",
+        entityType: input.entityType,
+        canonicalKey: input.canonicalKey,
+        displayName: input.displayName ?? null,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return mapEntity(data as Record<string, unknown>);
+  }
+
+  async linkEntity(input: LinkEntityInput): Promise<EntityLinkRow> {
+    const ownerId =
+      this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+    const payload = {
+      owner_id: ownerId,
+      entity_id: input.entityId,
+      linked_type: input.linkedType,
+      linked_id: input.linkedId,
+      relation: input.relation ?? "related",
+      metadata: input.metadata ?? {},
+    };
+    const { data, error } = await this.client
+      .from("entity_links")
+      .upsert(payload, {
+        onConflict: "entity_id,linked_type,linked_id,relation",
+      })
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] linkEntity:", error.message);
+      return {
+        id: "noop",
+        entityId: input.entityId,
+        linkedType: input.linkedType,
+        linkedId: input.linkedId,
+        relation: input.relation ?? "related",
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return mapEntityLink(data as Record<string, unknown>);
+  }
+
+  async listEntityLinks(entityId: string): Promise<EntityLinkRow[]> {
+    let q = this.client
+      .from("entity_links")
+      .select("*")
+      .eq("entity_id", entityId)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    q = this.applyOwner(q);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listEntityLinks:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapEntityLink(row as Record<string, unknown>),
+    );
   }
 }

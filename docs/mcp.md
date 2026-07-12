@@ -1,6 +1,9 @@
 # Cortex remote MCP
 
-Phase 6 exposes a **streamable HTTP** MCP endpoint so Cursor, Claude Code, Codex, and ChatGPT can query your vault with bearer auth.
+Remote **streamable HTTP** MCP so Cursor, Claude Code, Codex, and ChatGPT can query your vault with bearer auth.
+
+**Production (Railway-primary):** `https://cortexmcp-server-production-1c59.up.railway.app/mcp`  
+Collectors stay on Windows; MCP + ingest API deploy on Railway. See [deploy.md](deploy.md) / [ops-windows.md](ops-windows.md).
 
 ## Run locally
 
@@ -34,26 +37,40 @@ curl -Method POST http://localhost:8790/mcp `
   -Body '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
+## Retrieval playbook
+
+Call `cortex_help` from any client, or follow:
+
+1. **What am I building?** → `list_recent_work` (sessions + github_* + email; calendar excluded; drops `occurred_at` > now+7d). Then `search_memory` / `search_records`. Deep-dive with `get_session`.
+2. **Schedule** → `get_calendar_range` only. Do **not** use `list_recent_work` for calendar (recurring future events dominate).
+3. **Keywords** → `search_records` matches **payload text** + distillate content (not just type/source ids). Defaults exclude `calendar_event`. Empty results include a `hint` — that is real emptiness, not “sparse indexing.”
+4. **Semantic / insight** → `search_memory` (distillates first; vector when `distillates.embedding` is populated).
+
 ## Tools
 
 | Tool | Purpose |
 |------|---------|
-| `search_records` | Keyword search over canonical records |
+| `cortex_help` | Retrieval playbook |
+| `search_records` | Keyword search over payload + distillates; filters `recordTypes` / `sources` / `excludeTypes` / `since` / `until` |
+| `search_memory` | Hybrid distillate + record memory search |
 | `get_session` | Session + messages + tool summaries + distillate |
-| `list_recent_work` | Recent sessions/records across sources |
+| `list_recent_work` | Work-biased recent sessions/records (`kinds`, `horizonDays`, `workMode`) |
 | `get_email_thread` | Gmail thread by `threadId` |
-| `get_calendar_range` | Calendar events in an ISO range |
+| `get_calendar_range` | Calendar events in an ISO range (**the** schedule tool) |
 | `get_file_summary` | Drive/file summary by id |
+| `list_entities` / `upsert_entity` / `link_entity` / `get_entity_links` | Project graph (twin D1) |
+| `capture_decision` | Light decision/outcome capture (D3) |
 
 Fixture mode includes sample sessions, a Gmail thread (`thread-alpha`), a calendar event, and a Drive file so tools work without a linked Supabase project.
 
-## Distillate worker stub
+## Distillate worker
 
-Summarizes session envelopes into `distillates`-shaped rows (heuristic stub — no LLM yet).
+LLM session distillates when `OPENAI_API_KEY` is set (optional `OPENAI_BASE_URL`, `CORTEX_DISTILLATE_MODEL`). Falls back to heuristic stub otherwise. Embeddings on write use `CORTEX_EMBEDDING_MODEL` (default `text-embedding-3-small`) into `distillates.embedding` — **not** full raw records.
 
 ```powershell
 pnpm --filter @cortex/mcp-server distillate -- --dry-run --limit=5
 pnpm --filter @cortex/mcp-server distillate -- --limit=10
+pnpm --filter @cortex/mcp-server distillate -- --project-brief --dry-run
 ```
 
 Or HTTP (same bearer):
@@ -62,15 +79,21 @@ Or HTTP (same bearer):
 curl -Method POST http://localhost:8790/v1/distillate `
   -Headers @{ Authorization = "Bearer local-dev-token"; "Content-Type" = "application/json" } `
   -Body '{"limit":5,"dryRun":true}'
+
+curl -Method POST http://localhost:8790/v1/project-brief `
+  -Headers @{ Authorization = "Bearer local-dev-token"; "Content-Type" = "application/json" } `
+  -Body '{"limitSessions":20,"dryRun":true}'
 ```
 
-Writes upsert into `public.distillates` when Supabase is configured; fixture mode keeps rows in memory.
+Migration: `supabase/migrations/20260712200000_distillate_embeddings_search.sql` (`vector` extension + search RPCs). Apply with `npx supabase db push` when the project is linked.
+
+Twin extension points: [twin.md](twin.md).
 
 ---
 
 ## Client configuration
 
-Replace `YOUR_TOKEN` with the same value as `CORTEX_MCP_TOKEN` (or `CORTEX_INGEST_TOKEN`). For production, use your HTTPS MCP URL (e.g. Railway/Vercel) instead of localhost.
+Replace `YOUR_TOKEN` with the same value as `CORTEX_MCP_TOKEN` (or `CORTEX_INGEST_TOKEN`). For production, use the Railway HTTPS MCP URL.
 
 ### Cursor
 
@@ -108,8 +131,6 @@ User or project MCP config (e.g. `~/.claude.json` / project `.mcp.json`):
   }
 }
 ```
-
-If your Claude Code build only supports stdio, put a thin proxy in front or wait for remote HTTP MCP support; Cortex ships HTTP-native.
 
 ### Codex
 

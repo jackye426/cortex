@@ -304,8 +304,35 @@ export function sessionToEnvelope(s: SessionDetail): SessionEnvelopeInput {
     excerpts: s.messages
       .map((m) => m.content)
       .filter((c): c is string => Boolean(c)),
+    toolSummaries: s.toolCalls.map((t) =>
+      t.argsSummary ? `${t.toolName}(${t.argsSummary})` : t.toolName,
+    ),
     metadata: { ...s.metadata, sessionId: s.id },
   };
 }
 
 export { OWNER };
+
+/** In-memory project graph for fixture twin path demos. */
+export const fixtureEntities: import("./types.js").EntityRow[] = [
+  {
+    id: "e1111111-1111-4111-8111-111111111111",
+    entityType: "project",
+    canonicalKey: "cortex",
+    displayName: "Cortex",
+    metadata: { fixture: true },
+    createdAt: "2026-07-10T12:00:00.000Z",
+  },
+];
+
+export const fixtureEntityLinks: import("./types.js").EntityLinkRow[] = [
+  {
+    id: "el111111-1111-4111-8111-111111111111",
+    entityId: fixtureEntities[0]!.id,
+    linkedType: "session",
+    linkedId: FIXTURE_SESSIONS[0]!.id,
+    relation: "related",
+    metadata: { fixture: true },
+    createdAt: "2026-07-10T12:05:00.000Z",
+  },
+];

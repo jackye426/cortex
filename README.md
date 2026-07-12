@@ -1,26 +1,20 @@
 # Cortex
 
-Personal AI/session vault, canonical store, and remote MCP. Collectors run natively on Windows; data lands in an EU Supabase project.
+Personal AI/session vault, canonical store, and remote MCP. **Collectors run natively on Windows**; ingest API + MCP deploy on **Railway** (primary). Data lands in an EU Supabase project.
 
 ## Status
 
-**Phase 0** — monorepo scaffold, core/redaction packages, Supabase migration, ingest API stub, collector skeleton.
+**Live path:** vault + authenticated MCP retrieval → regenerable **LLM distillates** → **pgvector on distillates** → Personal Executive Twin scaffolding (entities / project briefs). No Obsidian middle tier.
 
-**Phase 1** — Claude Code + Codex adapters, backfill CLI, reference Stop/PostToolUse hooks.
+| Area | State |
+|------|--------|
+| Collectors (Windows) | Claude/Codex/Cursor sessions, GitHub, Google Workspace, Calibre, bookmarks, Spotify, YouTube API |
+| Ingest API + MCP | Railway; bearer auth; work-biased `list_recent_work`, payload `search_records`, `search_memory` |
+| Distillates | OpenAI-compatible HTTP (`OPENAI_API_KEY`); embed on write; project_brief job |
+| Twin (D1–D5) | Entities graph + stubs for priority/decision/self_model/allocator — see [docs/twin.md](docs/twin.md) |
+| Parallel data | YouTube Takeout + ChatGPT export when ZIPs ready — does not block MCP |
 
-**Phase 2b** — Calibre ebook metadata + Chrome/Edge bookmarks & keyword search (see [docs/sources.md](docs/sources.md)).
-
-**Phase 3** — ChatGPT official export parser + MV3 extension → ingest (see [docs/chatgpt.md](docs/chatgpt.md)).
-
-**Phase 4** — GitHub work-history (repos/issues/PRs/commits) + webhook stub (see [docs/github.md](docs/github.md)).
-
-**Phase 5** — Google Workspace Calendar / Drive / Gmail (see [docs/google.md](docs/google.md)).
-
-**Phase 5b** — Spotify Web API + privacy export; YouTube Data API + Takeout (see [docs/spotify-youtube.md](docs/spotify-youtube.md)).
-
-**Phase 6** — Remote authenticated MCP + distillate stub (see [docs/mcp.md](docs/mcp.md)).
-
-**Phase 7** — Hardening: backfill retry/checkpoints, tombstones, audit log, redaction tuning, deploy docs (see [docs/hardening.md](docs/hardening.md), [docs/deploy.md](docs/deploy.md)).
+**Phases (history):** 0 scaffold → 1 AI adapters → 2b Calibre/browser → 3 ChatGPT → 4 GitHub → 5 Google → 5b Spotify/YouTube → 6 MCP → 7 hardening. Details in `docs/`.
 
 ## Requirements
 
@@ -41,7 +35,7 @@ packages/adapters/*      Source adapters (claude-code, codex, chatgpt-export, �
 packages/normalize       Raw → canonical mappers
 hooks/                   Claude / Codex reference hook scripts
 supabase/                config + migrations (EU project)
-docs/                    Setup notes (mcp, deploy, hardening, chatgpt, …)
+docs/                    Setup notes (mcp, deploy, twin, chatgpt, …)
 ```
 
 ## Quick start
@@ -89,13 +83,16 @@ pnpm backfill -- --source=browser --limit=50
 
 Paths and noise rules: [docs/sources.md](docs/sources.md). Calibre is metadata + paths only (no ebook binaries). Browser is bookmarks + `keyword_search_terms` only (no visit firehose).
 
-### Phase 3 ChatGPT export
+### ChatGPT export + extension (when ZIP ready)
+
+Official export ZIP (Settings → Data controls → Export) plus optional MV3 extension for ongoing capture:
 
 ```powershell
 pnpm backfill -- --source=chatgpt-export --path=D:\Downloads\chatgpt.zip --dry-run
+pnpm backfill -- --source=chatgpt-export --path=D:\Downloads\chatgpt.zip
 ```
 
-Extension install + export steps: [docs/chatgpt.md](docs/chatgpt.md).
+Install steps: [docs/chatgpt.md](docs/chatgpt.md). **No ZIP in Downloads yet?** Skip — does not block MCP/distillates; ingest when the export arrives.
 
 ### Phase 4 GitHub
 
@@ -109,7 +106,7 @@ pnpm backfill -- --source=github --dry-run --limit=30 --max-repos=3 --no-commits
 
 PAT permissions + webhooks: [docs/github.md](docs/github.md).
 
-### Phase 5b Spotify + YouTube
+### Spotify + YouTube (+ Takeout when ready)
 
 ```powershell
 # Mock dry-run (no credentials)
@@ -121,9 +118,15 @@ pnpm backfill -- --source=spotify-export --path=D:\Downloads\spotify.zip --dry-r
 pnpm backfill -- --source=youtube-takeout --path=D:\Downloads\takeout.zip --dry-run
 ```
 
-OAuth + Takeout notes: [docs/spotify-youtube.md](docs/spotify-youtube.md).
+1. Google Takeout → YouTube (watch history / playlists) → download ZIP.
+2. Dry-run then ingest with `--source=youtube-takeout --path=…`.
+3. Prefer API sync (`--source=youtube`) for ongoing; Takeout fills history gaps for later distillates.
 
-### Phase 6 MCP
+OAuth + Takeout notes: [docs/spotify-youtube.md](docs/spotify-youtube.md). Missing ZIP is fine — document path and continue.
+
+### MCP (Railway-primary)
+
+Production MCP is on Railway. Local:
 
 ```powershell
 pnpm dev:mcp
@@ -131,7 +134,9 @@ pnpm dev:mcp
 pnpm distillate -- --dry-run --limit=5
 ```
 
-Client snippets (Cursor / Claude Code / Codex / ChatGPT): [docs/mcp.md](docs/mcp.md).
+Client snippets + retrieval playbook: [docs/mcp.md](docs/mcp.md). Twin path: [docs/twin.md](docs/twin.md).
+
+**Railway env (MCP service):** `CORTEX_MCP_TOKEN` (or ingest token), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORTEX_OWNER_ID` (optional), `OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `CORTEX_DISTILLATE_MODEL`, `CORTEX_EMBEDDING_MODEL`.
 
 ### Ingest smoke test
 
@@ -161,7 +166,7 @@ Collector-only: `apps/collector/ecosystem.config.cjs`.
 
 ### Supabase
 
-See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo; linking an EU project is required before real vault writes (later phases).
+See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo (including `20260712200000_distillate_embeddings_search.sql` for pgvector + search RPCs). Linking an EU project is required before real vault writes. Apply with `npx supabase db push` when linked.
 
 ## Scripts
 
@@ -171,7 +176,7 @@ See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo; linking an EU
 | `pnpm build` | Build all packages/apps |
 | `pnpm dev:api` | Run ingest API (tsx watch) |
 | `pnpm dev:mcp` | Run remote MCP server (tsx watch) |
-| `pnpm distillate` | Distillate worker stub (session → distillates shape) |
+| `pnpm distillate` | Session distillates (LLM or stub); `--project-brief` for B3 |
 | `pnpm dev:collector` | Run collector daemon (Google incremental sync) |
 | `pnpm pm2:start` | Start API + MCP + collector via pm2 |
 | `pnpm backfill` | Backfill → ingest |

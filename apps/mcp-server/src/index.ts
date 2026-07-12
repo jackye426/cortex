@@ -19,6 +19,7 @@ import {
   resolveMcpToken,
 } from "./env.js";
 import { logMcpAudit } from "./audit.js";
+import { runProjectBriefJob } from "./project-brief.js";
 import { createStore } from "./store/index.js";
 import { registerCortexTools } from "./tools.js";
 loadDotEnv();
@@ -36,10 +37,15 @@ function requireBearer(
 }
 
 function createServer(): McpServer {
-  const server = new McpServer({
-    name: "cortex",
-    version: "0.0.0",
-  });
+  const server = new McpServer(
+    {
+      name: "cortex",
+      version: "0.0.0",
+    },
+    {
+      instructions: `Cortex retrieval playbook: list_recent_work for what you're building (sessions/github/email; calendar excluded); get_calendar_range for schedule; search_records for payload+distillate keywords; search_memory for semantic/insight; get_session for deep evidence; cortex_help for full playbook.`,
+    },
+  );
   registerCortexTools(server, store);
   return server;
 }
@@ -70,7 +76,7 @@ app.get("/health", (c) =>
   }),
 );
 
-/** Trigger distillate stub (same bearer as MCP). */
+/** Trigger distillate worker (same bearer as MCP). */
 app.post("/v1/distillate", async (c) => {
   const expected = resolveMcpToken();
   if (!expected) {
@@ -109,6 +115,57 @@ app.post("/v1/distillate", async (c) => {
   });
 
   const result = await runDistillateWorker(store, { limit, dryRun });
+  return c.json({ ok: true, ...result });
+});
+
+/** Trigger project_brief rollup job (B3). */
+app.post("/v1/project-brief", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      {
+        error:
+          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+      },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let limitSessions = 40;
+  let dryRun = false;
+  let projectKeys: string[] | undefined;
+  try {
+    const body = (await c.req.json()) as {
+      limitSessions?: number;
+      dryRun?: boolean;
+      projectKeys?: string[];
+    };
+    if (typeof body.limitSessions === "number" && body.limitSessions > 0) {
+      limitSessions = Math.floor(body.limitSessions);
+    }
+    dryRun = Boolean(body.dryRun);
+    if (Array.isArray(body.projectKeys)) {
+      projectKeys = body.projectKeys.filter((k) => typeof k === "string");
+    }
+  } catch {
+    // empty body ok
+  }
+
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/project-brief",
+    method: "POST",
+    metadata: { limitSessions, dryRun },
+  });
+
+  const result = await runProjectBriefJob(store, {
+    limitSessions,
+    dryRun,
+    projectKeys,
+  });
   return c.json({ ok: true, ...result });
 });
 

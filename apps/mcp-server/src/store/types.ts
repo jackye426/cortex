@@ -40,6 +40,8 @@ export interface RecentWorkItem {
   title: string;
   occurredAt: string | null;
   recordType?: string;
+  /** One-line distillate summary when available (sessions). */
+  distillateSummary?: string | null;
 }
 
 export interface EmailThread {
@@ -89,6 +91,8 @@ export interface DistillateRow {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  /** Present when pgvector column is populated (Track C). */
+  embedding?: number[] | null;
 }
 
 export interface SessionEnvelopeInput {
@@ -100,14 +104,119 @@ export interface SessionEnvelopeInput {
   endedAt?: string | null;
   /** Optional free-text / message snippets used for the stub summary. */
   excerpts?: string[];
+  /** Tool name summaries for distillate context. */
+  toolSummaries?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+/** Filters for search_records / search memory keyword path. */
+export interface SearchRecordsOptions {
+  limit?: number;
+  recordTypes?: string[];
+  sources?: string[];
+  excludeTypes?: string[];
+  since?: string;
+  until?: string;
+  /**
+   * When true (default), exclude calendar_event unless recordTypes explicitly
+   * includes it or excludeTypes overrides.
+   */
+  excludeCalendarDefault?: boolean;
+}
+
+export interface SearchRecordsResult {
+  hits: RecordHit[];
+  distillates: DistillateRow[];
+  hint?: string;
+}
+
+export interface ListRecentWorkOptions {
+  limit?: number;
+  /** When omitted, both kinds are considered (work-biased). */
+  kinds?: Array<"session" | "record">;
+  recordTypes?: string[];
+  excludeTypes?: string[];
+  /**
+   * Drop items with occurred_at / start after now + N days.
+   * Default 7. Pass null to disable.
+   */
+  horizonDays?: number | null;
+  /**
+   * Prefer sessions + github_* + email_message for records.
+   * Default true when kinds omitted.
+   */
+  workMode?: boolean;
+}
+
+export interface MemorySearchOptions {
+  limit?: number;
+  kinds?: string[];
+  since?: string;
+  until?: string;
+}
+
+export interface MemorySearchHit {
+  kind: "distillate" | "record";
+  id: string;
+  score: number;
+  title: string;
+  snippet: string;
+  sourceId?: string;
+  sessionId?: string;
+  recordId?: string;
+  recordType?: string;
+  distillateKind?: string;
+  subjectType?: string;
+  subjectId?: string;
+}
+
+export interface MemorySearchResult {
+  hits: MemorySearchHit[];
+  hint?: string;
+}
+
+export interface EntityRow {
+  id: string;
+  entityType: string;
+  canonicalKey: string;
+  displayName: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface EntityLinkRow {
+  id: string;
+  entityId: string;
+  linkedType: string;
+  linkedId: string;
+  relation: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface UpsertEntityInput {
+  entityType: string;
+  canonicalKey: string;
+  displayName?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LinkEntityInput {
+  entityId: string;
+  linkedType: string;
+  linkedId: string;
+  relation?: string;
   metadata?: Record<string, unknown>;
 }
 
 export interface CortexStore {
   readonly mode: "supabase" | "fixture";
-  searchRecords(query: string, limit?: number): Promise<RecordHit[]>;
+  searchRecords(
+    query: string,
+    options?: SearchRecordsOptions,
+  ): Promise<SearchRecordsResult>;
   getSession(sessionId: string): Promise<SessionDetail | null>;
-  listRecentWork(limit?: number): Promise<RecentWorkItem[]>;
+  listRecentWork(options?: ListRecentWorkOptions): Promise<RecentWorkItem[]>;
   getEmailThread(threadId: string): Promise<EmailThread | null>;
   getCalendarRange(start: string, end: string): Promise<CalendarEventItem[]>;
   getFileSummary(fileId: string): Promise<FileSummary | null>;
@@ -117,7 +226,23 @@ export interface CortexStore {
     limit?: number,
   ): Promise<RecordHit[]>;
   listSessionsForDistillate(limit?: number): Promise<SessionEnvelopeInput[]>;
-  upsertDistillate(row: Omit<DistillateRow, "id" | "createdAt" | "updatedAt"> & {
-    id?: string;
-  }): Promise<DistillateRow>;
+  upsertDistillate(
+    row: Omit<DistillateRow, "id" | "createdAt" | "updatedAt" | "embedding"> & {
+      id?: string;
+      embedding?: number[] | null;
+    },
+  ): Promise<DistillateRow>;
+  searchDistillates(
+    query: string,
+    limit?: number,
+    kinds?: string[],
+  ): Promise<DistillateRow[]>;
+  searchMemory(
+    query: string,
+    options?: MemorySearchOptions,
+  ): Promise<MemorySearchResult>;
+  listEntities(entityType?: string, limit?: number): Promise<EntityRow[]>;
+  upsertEntity(input: UpsertEntityInput): Promise<EntityRow>;
+  linkEntity(input: LinkEntityInput): Promise<EntityLinkRow>;
+  listEntityLinks(entityId: string): Promise<EntityLinkRow[]>;
 }
