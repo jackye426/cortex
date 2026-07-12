@@ -67,7 +67,9 @@ Fixture mode includes sample sessions, a Gmail thread (`thread-alpha`), a calend
 
 LLM session distillates when `OPENAI_API_KEY` is set (optional `OPENAI_BASE_URL`, `CORTEX_DISTILLATE_MODEL`). Falls back to heuristic stub otherwise. Embeddings on write use `CORTEX_EMBEDDING_MODEL` (default `text-embedding-3-small`) into `distillates.embedding` — **not** full raw records.
 
-**OpenRouter pinning:** when `OPENAI_BASE_URL` is OpenRouter, distillate chat defaults to `provider.only: ["Morph"]` with fallbacks off (override via `CORTEX_LLM_PROVIDER_ONLY`). Optional `CORTEX_LLM_ZDR=1` and `CORTEX_LLM_DATA_COLLECTION=deny`. Embeddings are not Morph-pinned (use your OpenAI embedding model id).
+**OpenRouter pinning:** when `OPENAI_BASE_URL` is OpenRouter, distillate chat defaults to `provider.only: ["Morph"]`, `zdr: true`, and `data_collection: "deny"` (override with `CORTEX_LLM_*`). Embeddings are not Morph-pinned.
+
+**Where to put secrets:** repo `.env` for local `pnpm distillate` / collector. The **Railway MCP service** also needs `OPENAI_API_KEY`, `OPENAI_BASE_URL`, and model ids — local `.env` is not deployed.
 
 ```powershell
 pnpm --filter @cortex/mcp-server distillate -- --dry-run --limit=5

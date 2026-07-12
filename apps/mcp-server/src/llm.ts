@@ -45,15 +45,33 @@ export function embeddingModel(): string {
  * Env:
  *   CORTEX_LLM_PROVIDER_ONLY — comma list (default `Morph` on OpenRouter)
  *   CORTEX_LLM_ALLOW_FALLBACKS — `1` to allow (default off when only is set)
- *   CORTEX_LLM_ZDR — `1` require zero-retention endpoints
- *   CORTEX_LLM_DATA_COLLECTION — `deny` | `allow`
+ *   CORTEX_LLM_ZDR — `0` to disable (default on for OpenRouter)
+ *   CORTEX_LLM_DATA_COLLECTION — `allow` | `deny` (default `deny` on OpenRouter)
  *   CORTEX_LLM_QUANTIZATIONS — e.g. `bf16,fp16` (optional)
  */
 export function distillateProviderPrefs(): Record<string, unknown> | undefined {
+  const openRouter = isOpenRouter();
   const onlyRaw =
     process.env.CORTEX_LLM_PROVIDER_ONLY?.trim() ||
-    (isOpenRouter() ? "Morph" : "");
-  if (!onlyRaw && !process.env.CORTEX_LLM_ZDR && !process.env.CORTEX_LLM_DATA_COLLECTION) {
+    (openRouter ? "Morph" : "");
+
+  const zdrEnv = process.env.CORTEX_LLM_ZDR?.trim();
+  const zdr =
+    zdrEnv === "0" || zdrEnv === "false"
+      ? false
+      : zdrEnv === "1" || zdrEnv === "true"
+        ? true
+        : openRouter;
+
+  const dataEnv = process.env.CORTEX_LLM_DATA_COLLECTION?.trim();
+  const dataCollection =
+    dataEnv === "allow" || dataEnv === "deny"
+      ? dataEnv
+      : openRouter
+        ? "deny"
+        : undefined;
+
+  if (!onlyRaw && !zdr && !dataCollection) {
     return undefined;
   }
 
@@ -66,16 +84,14 @@ export function distillateProviderPrefs(): Record<string, unknown> | undefined {
         process.env.CORTEX_LLM_ALLOW_FALLBACKS?.trim() === "1";
     }
   }
-  if (process.env.CORTEX_LLM_ZDR?.trim() === "1") {
-    provider.zdr = true;
-  }
-  const dataCollection = process.env.CORTEX_LLM_DATA_COLLECTION?.trim();
-  if (dataCollection === "deny" || dataCollection === "allow") {
-    provider.data_collection = dataCollection;
-  }
+  if (zdr) provider.zdr = true;
+  if (dataCollection) provider.data_collection = dataCollection;
   const quants = process.env.CORTEX_LLM_QUANTIZATIONS?.trim();
   if (quants) {
-    provider.quantizations = quants.split(",").map((s) => s.trim()).filter(Boolean);
+    provider.quantizations = quants
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return Object.keys(provider).length ? provider : undefined;
 }
