@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "cortex": {
-      "url": "http://localhost:8790/mcp",
+      "url": "https://cortexmcp-server-production-1c59.up.railway.app/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_CORTEX_MCP_TOKEN"
       }

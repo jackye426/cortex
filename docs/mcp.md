@@ -74,22 +74,22 @@ Replace `YOUR_TOKEN` with the same value as `CORTEX_MCP_TOKEN` (or `CORTEX_INGES
 
 ### Cursor
 
-Cursor Settings → MCP → Add server, or project `.cursor/mcp.json`:
+Project `.cursor/mcp.json` (gitignored; copy from `.cursor/mcp.json.example`):
 
 ```json
 {
   "mcpServers": {
     "cortex": {
-      "url": "http://localhost:8790/mcp",
+      "url": "https://cortexmcp-server-production-1c59.up.railway.app/mcp",
       "headers": {
-        "Authorization": "Bearer YOUR_TOKEN"
+        "Authorization": "Bearer YOUR_CORTEX_MCP_TOKEN"
       }
     }
   }
 }
 ```
 
-Some Cursor builds use `mcp.servers` in `settings.json` with the same `url` + `headers` shape.
+Reload MCP in Cursor after editing. Local `http://localhost:8790/mcp` remains valid for offline/dev.
 
 ### Claude Code
 
@@ -100,9 +100,9 @@ User or project MCP config (e.g. `~/.claude.json` / project `.mcp.json`):
   "mcpServers": {
     "cortex": {
       "type": "http",
-      "url": "http://localhost:8790/mcp",
+      "url": "https://cortexmcp-server-production-1c59.up.railway.app/mcp",
       "headers": {
-        "Authorization": "Bearer YOUR_TOKEN"
+        "Authorization": "Bearer YOUR_CORTEX_MCP_TOKEN"
       }
     }
   }
@@ -113,35 +113,17 @@ If your Claude Code build only supports stdio, put a thin proxy in front or wait
 
 ### Codex
 
-Codex MCP (config.toml / app settings — names vary by build):
-
 ```toml
 [mcp_servers.cortex]
-url = "http://localhost:8790/mcp"
-http_headers = { Authorization = "Bearer YOUR_TOKEN" }
-```
-
-Or JSON-style:
-
-```json
-{
-  "mcpServers": {
-    "cortex": {
-      "url": "http://localhost:8790/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_TOKEN"
-      }
-    }
-  }
-}
+url = "https://cortexmcp-server-production-1c59.up.railway.app/mcp"
+http_headers = { Authorization = "Bearer YOUR_CORTEX_MCP_TOKEN" }
 ```
 
 ### ChatGPT (Custom GPT / Actions / connectors)
 
-1. Deploy Cortex MCP behind **HTTPS** (localhost is not reachable from OpenAI).
-2. In ChatGPT connector / custom action settings, point at `https://your-host/mcp`.
-3. Add header `Authorization: Bearer YOUR_TOKEN`.
-4. Prefer streamable HTTP; if the product still expects SSE-only legacy MCP, put a compatible gateway in front (Phase 7 hardening may document deploy options).
+1. Point at `https://cortexmcp-server-production-1c59.up.railway.app/mcp`.
+2. Add header `Authorization: Bearer YOUR_CORTEX_MCP_TOKEN`.
+3. Prefer streamable HTTP; if the product still expects SSE-only legacy MCP, put a compatible gateway in front.
 
 Never paste production tokens into shared GPT configs you publish.
 

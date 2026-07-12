@@ -18,20 +18,27 @@ Personal vault stack: **ingest API** + **remote MCP** + **EU Supabase**. Collect
 
 Point collectors / the ChatGPT extension at the public API URL. Point Cursor / Claude / Codex MCP connectors at the public MCP URL.
 
-## Railway sketch
+## Railway (live)
 
-1. Create a Railway project; add two services from the same GitHub repo (or one service with two processes).
-2. **API service** (repo root as root directory)
-   - Build: `pnpm --filter @cortex/api build` (builds workspace deps via `^...`, then `tsc`)
-   - Start: `pnpm --filter @cortex/api start`
-   - Env: `PORT`, `CORTEX_INGEST_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, optional `GITHUB_WEBHOOK_SECRET`, `CORTEX_OWNER_ID`
-3. **MCP service** (same repo root)
-   - Build: `pnpm --filter @cortex/mcp-server build`
-   - Start: `pnpm --filter @cortex/mcp-server start`
-   - Env: `MCP_PORT` or `PORT`, `CORTEX_MCP_TOKEN` (or ingest token), same Supabase vars
-4. Attach public HTTPS domains; set collector `CORTEX_INGEST_URL` to the API domain.
+Project services: `@cortex/api` + `@cortex/mcp-server` (repo root as root directory for both).
 
-Railway nixpacks may need `NIXPACKS_NODE_VERSION=25` (or your engines field).
+| Service | Public URL (example) | Build | Start |
+|---------|----------------------|-------|-------|
+| API | `https://cortexapi-production-9b74.up.railway.app` | `pnpm --filter @cortex/api build` | `pnpm --filter @cortex/api start` |
+| MCP | `https://cortexmcp-server-production-1c59.up.railway.app` | `pnpm --filter @cortex/mcp-server build` | `pnpm --filter @cortex/mcp-server start` |
+
+**Env (both):** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`  
+**API also:** `CORTEX_INGEST_TOKEN`, optional `GITHUB_WEBHOOK_SECRET`, `CORTEX_OWNER_ID`  
+**MCP also:** `CORTEX_MCP_TOKEN` (do not omit Supabase or health reports `store: "fixture"`)
+
+Local Windows after deploy:
+
+1. Set `CORTEX_INGEST_URL` to the API origin (no trailing slash).
+2. Align `CORTEX_INGEST_TOKEN` / `CORTEX_MCP_TOKEN` with Railway.
+3. Write project `.cursor/mcp.json` (gitignored) from `.cursor/mcp.json.example`.
+4. `pm2 start ecosystem.config.cjs --only cortex-collector` then `pm2 save` — see [ops-windows.md](ops-windows.md).
+
+Build note: API/MCP `build` scripts compile workspace deps (`pnpm --filter …^...`) before `tsc`.
 
 ## Vercel sketch
 

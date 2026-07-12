@@ -1,40 +1,45 @@
 # Cortex Windows ops (always-on)
 
-Keep the ingest API, MCP server, and collector daemon running on this machine so hooks and incremental Google sync land in the EU vault without manual backfill.
+**Production layout:** ingest API + MCP run on **Railway** (HTTPS). This Windows host only needs the **collector** (Gmail/Calendar/Drive incremental) plus agent **hooks** posting to the public ingest URL.
 
 ## Prerequisites
 
 1. Repo-root `.env` with at least:
-   - `CORTEX_INGEST_TOKEN`
-   - `CORTEX_MCP_TOKEN` (or reuse ingest token locally)
-   - `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`
+   - `CORTEX_INGEST_URL` — Railway API origin (e.g. `https://…up.railway.app`)
+   - `CORTEX_INGEST_TOKEN` — must match the Railway API service
+   - `CORTEX_MCP_TOKEN` — for Cursor/Claude MCP clients (Railway MCP service)
+   - `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (local backfill / distillate CLIs)
    - Google / GitHub tokens as needed for sync sources
-2. Build once after pull:
+2. Build collector (and packages) once after pull:
 
 ```powershell
 cd "C:\Users\yulon\Desktop\Current Projects\Cortex"
 pnpm install
-pnpm build
+pnpm --filter @cortex/collector... build
 ```
 
 3. [pm2](https://pm2.keymetrics.io/) installed globally: `npm i -g pm2`
 
-## Start all services
+## Start collector (Railway-backed)
 
 ```powershell
 cd "C:\Users\yulon\Desktop\Current Projects\Cortex"
-pm2 start ecosystem.config.cjs
+pm2 start ecosystem.config.cjs --only cortex-collector
+pm2 save
 pm2 status
-pm2 logs cortex-api --lines 50
+pm2 logs cortex-collector --lines 50
 ```
 
-Processes:
+Optional local API/MCP (dev only — not required when Railway is up):
 
-| Name | Port / role |
-|------|-------------|
-| `cortex-api` | `:8787` — `POST /v1/ingest`, webhooks |
-| `cortex-mcp` | `:8790` — streamable HTTP MCP |
-| `cortex-collector` | polls Gmail history + Calendar/Drive incremental |
+```powershell
+pm2 start ecosystem.config.cjs --only cortex-api,cortex-mcp
+```
+
+| Name | Role |
+|------|------|
+| `cortex-collector` | Polls Gmail history + Calendar/Drive → `CORTEX_INGEST_URL` |
+| `cortex-api` / `cortex-mcp` | Local ports 8787 / 8790 — skip if using Railway |
 
 Survive logon:
 
@@ -48,28 +53,29 @@ pm2 save
 Stop / restart:
 
 ```powershell
-pm2 restart all
-pm2 stop all
-pm2 delete all
+pm2 restart cortex-collector
+pm2 stop cortex-collector
+pm2 delete cortex-collector
 ```
 
 ## Smoke checks
 
 ```powershell
-Invoke-RestMethod http://localhost:8787/health
-Invoke-RestMethod http://localhost:8790/health
+Invoke-RestMethod "$env:CORTEX_INGEST_URL/health"   # or paste Railway API URL
+Invoke-RestMethod "https://<mcp-host>/health"       # expect store: supabase
 ```
 
-MCP tools list (bearer = `CORTEX_MCP_TOKEN` or ingest token):
+Remote MCP tools list (bearer = `CORTEX_MCP_TOKEN`):
 
 ```powershell
 $token = (Get-Content .env | Where-Object { $_ -match '^CORTEX_MCP_TOKEN=' }) -replace '^[^=]+=',''
-# fallback: CORTEX_INGEST_TOKEN
-curl -s -X POST http://localhost:8790/mcp `
-  -H "Authorization: Bearer $token" `
-  -H "Content-Type: application/json" `
-  -H "Accept: application/json, text/event-stream" `
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+curl -Method POST "https://<mcp-host>/mcp" `
+  -Headers @{
+    Authorization = "Bearer $token"
+    "Content-Type" = "application/json"
+    Accept = "application/json, text/event-stream"
+  } `
+  -Body '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 ## Collector sync knobs
@@ -88,6 +94,6 @@ Sync cursors are stored separately from backfill message-id checkpoints under `.
 
 See [hooks/README.md](../hooks/README.md). Point agent configs at the scripts under `hooks/` and set user env `CORTEX_INGEST_URL` + `CORTEX_INGEST_TOKEN` (or rely on the `.cmd` loaders that read repo `.env`).
 
-## Deploy later
+## Deploy
 
-When ready for HTTPS + GitHub webhooks, follow [deploy.md](deploy.md) and [hardening.md](hardening.md). Until then, keep collectors on this trusted Windows host only.
+API + MCP HTTPS, env vars, and post-deploy smoke: [deploy.md](deploy.md). Hardening checklist: [hardening.md](hardening.md). Keep the collector on this trusted Windows host only (Google OAuth tokens / local SQLite never leave the machine via that path except through ingest).
