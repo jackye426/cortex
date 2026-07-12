@@ -20,6 +20,7 @@ import {
 } from "./env.js";
 import { logMcpAudit } from "./audit.js";
 import {
+  refreshSelfModel,
   runEmbedBackfill,
   runPriorityVsActual,
   runProjectBriefJob,
@@ -27,6 +28,7 @@ import {
 } from "./project-brief.js";
 import { createStore } from "./store/index.js";
 import { registerCortexTools } from "./tools.js";
+import { runTwinPipeline } from "./twin-pipeline.js";
 loadDotEnv();
 
 const store = createStore();
@@ -268,10 +270,86 @@ app.post("/v1/twin", async (c) => {
     const result = await seedEntitiesFromDistillates(store, { dryRun, limit });
     return c.json({ ok: true, job, ...result });
   }
+  if (job === "project-brief") {
+    const result = await runProjectBriefJob(store, {
+      dryRun,
+      limitSessions: limit,
+    });
+    return c.json({ ok: true, job, ...result });
+  }
+  if (job === "self-model") {
+    const row = await refreshSelfModel(store, { dryRun });
+    return c.json({ ok: true, job, distillate: row });
+  }
   return c.json(
-    { error: "unknown job", jobs: ["seed-entities", "priority-vs-actual"] },
+    {
+      error: "unknown job",
+      jobs: [
+        "seed-entities",
+        "priority-vs-actual",
+        "project-brief",
+        "self-model",
+      ],
+    },
     400,
   );
+});
+
+/** Nightly / weekly / backfill twin pipeline (cron target). */
+app.post("/v1/twin-pipeline", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      {
+        error:
+          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+      },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let mode: "nightly" | "weekly" | "backfill" = "nightly";
+  let dryRun = false;
+  let batchSize = 30;
+  let maxBatches: number | undefined;
+  try {
+    const body = (await c.req.json()) as {
+      mode?: string;
+      dryRun?: boolean;
+      batchSize?: number;
+      maxBatches?: number;
+    };
+    if (body.mode === "weekly" || body.mode === "backfill" || body.mode === "nightly") {
+      mode = body.mode;
+    }
+    dryRun = Boolean(body.dryRun);
+    if (typeof body.batchSize === "number" && body.batchSize > 0) {
+      batchSize = Math.floor(body.batchSize);
+    }
+    if (typeof body.maxBatches === "number" && body.maxBatches > 0) {
+      maxBatches = Math.floor(body.maxBatches);
+    }
+  } catch {
+    // empty body ok
+  }
+
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/twin-pipeline",
+    method: "POST",
+    metadata: { mode, dryRun, batchSize, maxBatches },
+  });
+
+  const result = await runTwinPipeline(store, {
+    mode,
+    dryRun,
+    batchSize,
+    maxBatches,
+  });
+  return c.json({ ok: true, ...result });
 });
 
 app.all("/mcp", async (c) => {

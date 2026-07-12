@@ -232,6 +232,7 @@ export class FixtureStore implements CortexStore {
 
   async listSessionsForDistillate(
     limit = 50,
+    _options: { skipDistilled?: boolean } = {},
   ): Promise<SessionEnvelopeInput[]> {
     return FIXTURE_SESSIONS.slice(0, limit).map(sessionToEnvelope);
   }

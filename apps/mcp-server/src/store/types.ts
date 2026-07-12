@@ -225,7 +225,10 @@ export interface CortexStore {
     recordType: string,
     limit?: number,
   ): Promise<RecordHit[]>;
-  listSessionsForDistillate(limit?: number): Promise<SessionEnvelopeInput[]>;
+  listSessionsForDistillate(
+    limit?: number,
+    options?: { skipDistilled?: boolean },
+  ): Promise<SessionEnvelopeInput[]>;
   upsertDistillate(
     row: Omit<DistillateRow, "id" | "createdAt" | "updatedAt" | "embedding"> & {
       id?: string;

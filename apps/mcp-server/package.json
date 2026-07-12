@@ -10,7 +10,8 @@
     "build": "pnpm --filter @cortex/mcp-server^... run build && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "distillate": "tsx src/distillate-cli.ts",
-    "embed-backfill": "tsx src/embed-backfill-cli.ts"
+    "embed-backfill": "tsx src/embed-backfill-cli.ts",
+    "twin-pipeline": "tsx src/twin-pipeline-cli.ts"
   },
   "dependencies": {
     "@cortex/core": "workspace:*",

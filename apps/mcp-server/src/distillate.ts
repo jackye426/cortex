@@ -19,6 +19,8 @@ export interface DistillateRunOptions {
   model?: string;
   /** Force heuristic stub even when OPENAI_API_KEY is set. */
   stubOnly?: boolean;
+  /** Skip sessions that already have kind=summary distillate (default true). */
+  skipDistilled?: boolean;
 }
 
 export interface DistillateRunResult {
@@ -226,7 +228,9 @@ export async function runDistillateWorker(
   const engine: "llm" | "stub" =
     openaiConfigured() && !options.stubOnly ? "llm" : "stub";
 
-  const sessions = await store.listSessionsForDistillate(limit);
+  const sessions = await store.listSessionsForDistillate(limit, {
+    skipDistilled: options.skipDistilled !== false,
+  });
   const distillates: DistillateRow[] = [];
   let written = 0;
 

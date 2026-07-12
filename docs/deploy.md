@@ -40,6 +40,27 @@ Local Windows after deploy:
 
 Build note: API/MCP `build` scripts compile workspace deps (`pnpm --filter …^...`) before `tsc`.
 
+**MCP also needs for distillates:** `OPENAI_API_KEY`, `OPENAI_BASE_URL` (OpenRouter), optional `CORTEX_DISTILLATE_MODEL`, `CORTEX_EMBEDDING_MODEL`.
+
+### Twin pipeline cron (Railway or external)
+
+Distillates do not run on ingest — schedule `POST /v1/twin-pipeline` on the MCP service (bearer = `CORTEX_MCP_TOKEN`):
+
+| Cron | Body |
+|------|------|
+| `0 3 * * *` (daily) | `{"mode":"nightly"}` |
+| `0 4 * * 0` (Sunday) | `{"mode":"weekly"}` |
+
+Backfill remaining sessions manually (or a one-off cron with higher `maxBatches`):
+
+```powershell
+curl -Method POST "https://<mcp-host>/v1/twin-pipeline" `
+  -Headers @{ Authorization = "Bearer <mcp-token>"; "Content-Type" = "application/json" } `
+  -Body '{"mode":"backfill","maxBatches":20,"batchSize":30}'
+```
+
+On Windows, equivalent local cron is `cortex-twin-nightly` / `cortex-twin-weekly` in `ecosystem.config.cjs` — see [twin.md](twin.md).
+
 ## Vercel sketch
 
 Vercel fits serverless HTTP well; long-lived MCP sessions are trickier.

@@ -30,6 +30,15 @@ pm2 status
 pm2 logs cortex-collector --lines 50
 ```
 
+Twin pipeline (requires MCP build + Supabase + OpenRouter in `.env`):
+
+```powershell
+pnpm --filter @cortex/mcp-server... build
+pm2 start ecosystem.config.cjs --only cortex-twin-nightly,cortex-twin-weekly
+# one-off historical backfill:
+pnpm twin-pipeline -- --mode=backfill --max-batches=20
+```
+
 Optional local API/MCP (dev only — not required when Railway is up):
 
 ```powershell
@@ -39,6 +48,8 @@ pm2 start ecosystem.config.cjs --only cortex-api,cortex-mcp
 | Name | Role |
 |------|------|
 | `cortex-collector` | Polls Gmail history + Calendar/Drive → `CORTEX_INGEST_URL` |
+| `cortex-twin-nightly` | Cron 03:00 — distill + embed + seed-entities (`twin-pipeline --mode=nightly`) |
+| `cortex-twin-weekly` | Cron Sun 04:00 — weekly twin rollup + self-model |
 | `cortex-api` / `cortex-mcp` | Local ports 8787 / 8790 — skip if using Railway |
 
 Survive logon:

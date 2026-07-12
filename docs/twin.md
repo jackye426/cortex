@@ -28,9 +28,37 @@ pnpm distillate -- --seed-entities
 pnpm distillate -- --project-brief --limit=40
 pnpm distillate -- --priority-vs-actual
 pnpm distillate -- --self-model
+
+# Scheduled pipeline (nightly / weekly / historical backfill)
+pnpm twin-pipeline -- --mode=nightly
+pnpm twin-pipeline -- --mode=weekly
+pnpm twin-pipeline -- --mode=backfill --max-batches=20 --batch-size=30
 ```
 
-HTTP (same bearer as MCP): `POST /v1/distillate`, `/v1/project-brief`, `/v1/embed-backfill`, `/v1/twin` (`job`: `seed-entities` | `priority-vs-actual`).
+HTTP (same bearer as MCP): `POST /v1/distillate`, `/v1/project-brief`, `/v1/embed-backfill`, `/v1/twin` (`job`: `seed-entities` | `priority-vs-actual` | `project-brief` | `self-model`), `POST /v1/twin-pipeline` (`mode`: `nightly` | `weekly` | `backfill`).
+
+## Automation
+
+| Schedule | Mode | What runs |
+|----------|------|-----------|
+| Daily 03:00 | `nightly` | Distill new sessions (skip already summarized) → embed-backfill → seed-entities |
+| Sunday 04:00 | `weekly` | Nightly + project-brief + priority-vs-actual + refresh self-model |
+| Manual | `backfill` | Repeat nightly batches until no undistilled sessions remain |
+
+**Windows (pm2):** after `pnpm --filter @cortex/mcp-server... build`, start cron apps:
+
+```powershell
+pm2 start ecosystem.config.cjs --only cortex-twin-nightly,cortex-twin-weekly
+pm2 save
+```
+
+**Railway:** add a cron service or use an external scheduler to `POST` the MCP URL:
+
+```powershell
+curl -Method POST "https://<mcp-host>/v1/twin-pipeline" `
+  -Headers @{ Authorization = "Bearer $env:CORTEX_MCP_TOKEN"; "Content-Type" = "application/json" } `
+  -Body '{"mode":"nightly"}'
+```
 
 ## MCP twin tools
 
