@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@cortex/core": "workspace:*",
+    "@cortex/redaction": "workspace:*",
     "@hono/node-server": "^1.14.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@supabase/supabase-js": "^2.110.2",

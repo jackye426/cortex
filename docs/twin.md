@@ -51,8 +51,8 @@ HTTP (same bearer as MCP): `POST /v1/distillate`, `/v1/project-brief`, `/v1/embe
 
 | Schedule | Mode | What runs |
 |----------|------|-----------|
-| Daily 03:00 | `nightly` | Distill new sessions → YouTube digest → embed-backfill → seed-entities |
-| Sunday 04:00 | `weekly` | Nightly + project-brief + priority-vs-actual + self-model + portrait |
+| Daily 03:00 | `nightly` | Distill new sessions → enabled `CORTEX_SOURCE_ADAPTERS` operational digests → YouTube digest → embed-backfill → seed-entities |
+| Sunday 04:00 | `weekly` | Nightly work + project-brief + priority-vs-actual + self-model + portrait + enabled reflective adapters (`browser-interest`, `spotify-interest`) |
 | Manual | `backfill` | Repeat nightly batches until no undistilled sessions remain |
 
 **Windows (pm2):** after `pnpm --filter @cortex/mcp-server... build`, start cron apps:

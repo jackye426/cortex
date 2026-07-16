@@ -16,23 +16,26 @@ function parseArgs(argv: string[]): {
   force: boolean;
   adapter?: string;
   limit: number;
+  weekKey?: string;
 } {
   let list = false;
   let dryRun = false;
   let force = false;
   let adapter: string | undefined;
   let limit = 40;
+  let weekKey: string | undefined;
   for (const arg of argv) {
     if (arg === "--list") list = true;
     else if (arg === "--dry-run") dryRun = true;
     else if (arg === "--force") force = true;
     else if (arg.startsWith("--adapter=")) adapter = arg.slice("--adapter=".length);
+    else if (arg.startsWith("--week=")) weekKey = arg.slice("--week=".length);
     else if (arg.startsWith("--limit=")) {
       const n = Number(arg.slice("--limit=".length));
       if (Number.isFinite(n) && n > 0) limit = Math.floor(n);
     }
   }
-  return { list, dryRun, force, adapter, limit };
+  return { list, dryRun, force, adapter, limit, weekKey };
 }
 
 async function main(): Promise<void> {
@@ -45,7 +48,7 @@ async function main(): Promise<void> {
     console.info("Available adapters:");
     for (const a of SOURCE_ADAPTERS) {
       console.info(
-        `  - ${a.id} kind=${a.kind} grain=${a.grain} domain=${a.domainDefault}`,
+        `  - ${a.id} kind=${a.kind} cadence=${a.cadence} grain=${a.grain} domain=${a.domainDefault}`,
       );
       for (const q of a.evaluationQuestions) {
         console.info(`      eval: ${q}`);
@@ -62,6 +65,7 @@ async function main(): Promise<void> {
     dryRun: args.dryRun,
     limit: args.limit,
     force: args.force,
+    weekKey: args.weekKey,
   });
   // Avoid dumping embedding vectors into the terminal.
   const slim = {

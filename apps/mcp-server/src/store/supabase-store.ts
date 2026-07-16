@@ -682,7 +682,8 @@ export class SupabaseStore implements CortexStore {
     recordType: string,
     limit = 20,
   ): Promise<RecordHit[]> {
-    const capped = Math.max(1, Math.min(limit, 100));
+    // Raised from 100 so weekly compilers / email grouping are not truncated.
+    const capped = Math.max(1, Math.min(limit, 500));
     const tombstoned = await this.loadTombstoneIds("record");
     let q = this.client
       .from("records")
@@ -691,7 +692,7 @@ export class SupabaseStore implements CortexStore {
       )
       .eq("record_type", recordType)
       .order("occurred_at", { ascending: false, nullsFirst: false })
-      .limit(Math.min(capped + tombstoned.size, 200));
+      .limit(Math.min(capped + tombstoned.size, 600));
     q = this.applyOwner(q);
     const { data, error } = await q;
     if (error) {
@@ -702,6 +703,50 @@ export class SupabaseStore implements CortexStore {
       (data ?? []).map((row) => mapRecord(row as Record<string, unknown>)),
       tombstoned,
     ).slice(0, capped);
+  }
+
+  async listRecordsByTypeInRange(
+    recordType: string,
+    since: string,
+    until: string,
+    limit = 500,
+  ): Promise<RecordHit[]> {
+    const capped = Math.max(1, Math.min(limit, 2000));
+    const tombstoned = await this.loadTombstoneIds("record");
+    const pageSize = 500;
+    const out: RecordHit[] = [];
+    let offset = 0;
+    while (out.length < capped) {
+      const fetch = Math.min(pageSize, capped - out.length + tombstoned.size);
+      let q = this.client
+        .from("records")
+        .select(
+          "id, source_id, source_record_id, record_type, payload, content_hash, occurred_at",
+        )
+        .eq("record_type", recordType)
+        .gte("occurred_at", since)
+        .lt("occurred_at", until)
+        .order("occurred_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + fetch - 1);
+      q = this.applyOwner(q);
+      const { data, error } = await q;
+      if (error) {
+        console.warn(
+          "[store/supabase] listRecordsByTypeInRange:",
+          error.message,
+        );
+        break;
+      }
+      const page = this.filterTombstonedRecords(
+        (data ?? []).map((row) => mapRecord(row as Record<string, unknown>)),
+        tombstoned,
+      );
+      if (page.length === 0) break;
+      out.push(...page);
+      offset += fetch;
+      if ((data ?? []).length < fetch) break;
+    }
+    return out.slice(0, capped);
   }
 
   private async loadDistilledSessionIds(): Promise<Set<string>> {

@@ -161,6 +161,11 @@ export async function askMirror(
     trimmed,
   );
   const wantsCalendar = /\b(calendar|meeting|1:1|interview)\b/i.test(trimmed);
+  const wantsDrive = /\b(drive|doc|spec|brief|gdoc)\b/i.test(trimmed);
+  const wantsBrowser =
+    /\b(browser|search|bookmark|research theme)\b/i.test(trimmed);
+  const wantsSpotify = /\b(spotify|listening|podcast|music)\b/i.test(trimmed);
+  const wantsYoutube = /\b(youtube|watching)\b/i.test(trimmed);
 
   const memory = await store.searchMemory(trimmed, {
     limit,
@@ -200,6 +205,10 @@ export async function askMirror(
   if (wantsEmail) boostKinds.push("email_thread_digest");
   if (wantsGithub) boostKinds.push("github_outcome_digest");
   if (wantsCalendar) boostKinds.push("calendar_event_digest");
+  if (wantsDrive) boostKinds.push("drive_file_digest");
+  if (wantsBrowser) boostKinds.push("browser_interest_digest");
+  if (wantsSpotify) boostKinds.push("spotify_interest_digest");
+  if (wantsYoutube) boostKinds.push("youtube_interest_digest");
 
   const [recentDistillates, boosted] = await Promise.all([
     store.listDistillates({ limit: 40 }),

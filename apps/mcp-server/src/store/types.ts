@@ -247,6 +247,16 @@ export interface CortexStore {
     recordType: string,
     limit?: number,
   ): Promise<RecordHit[]>;
+  /**
+   * List records of a type with occurred_at in [since, until) (ISO strings).
+   * Used by week-scoped compilers so they are not blinded by a global top-N cap.
+   */
+  listRecordsByTypeInRange(
+    recordType: string,
+    since: string,
+    until: string,
+    limit?: number,
+  ): Promise<RecordHit[]>;
   listSessionsForDistillate(
     limit?: number,
     options?: { skipDistilled?: boolean },

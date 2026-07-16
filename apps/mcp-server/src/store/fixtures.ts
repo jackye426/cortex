@@ -113,6 +113,7 @@ export const FIXTURE_RECORDS: RecordHit[] = [
       end: "2026-07-11T17:00:00.000Z",
       calendarId: "primary",
       location: "Meet",
+      attendees: [{ email: "a@example.com" }, { email: "b@example.com" }],
     },
     contentHash: "hash-cal-200",
     occurredAt: "2026-07-11T16:00:00.000Z",
@@ -125,7 +126,11 @@ export const FIXTURE_RECORDS: RecordHit[] = [
     payload: {
       name: "Cortex architecture notes.md",
       mimeType: "text/markdown",
+      folderPath: "Drive/Cortex",
       path: "Drive/Cortex/architecture notes.md",
+      modifiedTime: "2026-07-08T12:00:00.000Z",
+      textPreview:
+        "Three layers: raw vault, canonical records, regenerable distillates. Remote MCP reads canonical + distillates.",
       summary:
         "Three layers: raw vault, canonical records, regenerable distillates. Remote MCP reads canonical + distillates.",
     },
@@ -141,6 +146,11 @@ export const FIXTURE_RECORDS: RecordHit[] = [
       title: "feat: Claude + Codex backfill",
       number: 42,
       repo: "cortex",
+      repoFullName: "jackye426/cortex",
+      state: "closed",
+      mergedAt: "2026-07-07T19:00:00.000Z",
+      userLogin: "jackye426",
+      updatedAt: "2026-07-07T19:00:00.000Z",
     },
     contentHash: "hash-gh-42",
     occurredAt: "2026-07-07T18:00:00.000Z",
