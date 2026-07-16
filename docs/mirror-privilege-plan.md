@@ -6,12 +6,26 @@ Keep Mirror interpretations accurate by allowing raw evidence when needed, witho
 
 **Rule:** The default AI surface sees distillates. Raw evidence is retrieved narrowly, temporarily, and explicitly via an evidence broker.
 
+## Decisions (locked)
+
+| Topic | Decision |
+|-------|----------|
+| Deployment shape | **Two MCP endpoints in one service** initially (`/mcp` Mirror, `/mcp/ops` or equivalent). Split Railway services later if needed. |
+| Mirror tools | **No raw vault tools** on the Mirror endpoint. |
+| Sessions | **Always broker-only** — never expose full `get_session` / message dumps on Mirror. |
+| Calendar | **Structure via sanitised view** on Mirror (title/summary, start, end, attendee count, ids). **Descriptions and attachments via broker.** |
+| Who decides access | Agent may **request** evidence; **deterministic policy** grants or denies. Agent preference is not authority. |
+| Sensitive access | Requires **explicit, scoped, short-lived capabilities** (not a permanent boolean on the agent). |
+| Restricted data | Requires an **ops-issued capability** (stronger than Mirror self-serve sensitive caps). |
+| Compilers / ingest | Retain raw access via a **separate non-interactive vault credential** (not the Mirror key). |
+| Portraits / behavioural models | **Stronger protection** than ordinary distillates (class, audit, tighter retrieval). |
+
 ## Non-goals
 
 - Sealing Mirror so it can never see raw content
-- Moving collectors/compilers off vault access (they remain vault-tier jobs)
+- Moving collectors/compilers off vault access
 - Redesigning OpenAI/OpenRouter provider choice in this plan
-- Building a separate product UI for approvals (policy hooks only; human approval can be env/flag/ops initially)
+- Full human-approval product UI in v1 (ops-issued capabilities + policy engine first)
 
 ## Current state (problem)
 
@@ -26,234 +40,261 @@ Keep Mirror interpretations accurate by allowing raw evidence when needed, witho
 ## Target architecture
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│ 1. Vault + ingestion (service role / vault credential)  │
-│    collector, API ingest, distill compilers, twin-pipeline │
-│    raw records/sessions + redaction on write              │
-└───────────────────────────┬─────────────────────────────┘
-                            │ compilers write distillates
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│ 2. Mirror surface (mirror credential — no raw SELECT)   │
-│    search_memory, ask_mirror, briefs, priority_vs_actual │
-│    portrait (gated), allocator_context, entities (read)  │
-│    citations + redacted excerpts only                    │
-└───────────────────────────┬─────────────────────────────┘
-                            │ when raw needed
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│ 3. Evidence broker (read-only RPC + tool)               │
-│    retrieve_supporting_evidence(...)                     │
-│    limits, field allowlist, redaction, access log        │
-│    sensitive categories require explicit approval flag    │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Vault credential (non-interactive)                             │
+│ API ingest · collector · distill compilers · twin-pipeline     │
+│ Full raw tables + Storage                                      │
+└───────────────────────────────┬────────────────────────────────┘
+                                │ writes distillates / briefs / portraits
+                                ▼
+┌──────────────────────────────────────────────────────────────┐
+│ One MCP process, two endpoints                                 │
+│                                                                │
+│  /mcp          Mirror credential                               │
+│                distillates · embeddings · sanitised calendar     │
+│                briefs · priority_vs_actual · gated portrait      │
+│                retrieve_supporting_evidence (policy + caps)      │
+│                                                                │
+│  /mcp/ops      Vault or elevated credential                      │
+│                ops tools · capability issuance · maintenance     │
+└───────────────────────────────┬────────────────────────────────┘
+                                │ broker RPC (read-only, limited)
+                                ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Evidence broker                                                │
+│ Agent requests → policy evaluates → excerpts or deny           │
+│ Redaction · field allowlist · access log · ephemeral payload   │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Capability model
+
+Access is not “agent said sensitivity_ack=true”. Access is **capability tokens** evaluated by deterministic policy.
+
+| Class | Examples | How granted | Lifetime |
+|-------|----------|-------------|----------|
+| **routine** | Sanitised calendar structure; ordinary distillate search; non-sensitive broker fields (e.g. email subject/timestamp within window) | Implicit for Mirror endpoint auth | Session / request |
+| **sensitive** | Email/session body excerpts; Drive text previews; calendar descriptions/attachments; youtube watch detail beyond digest | Explicit **scoped short-lived capability** minted for purpose + sources + window + max_results | Minutes (e.g. 5–15), single-use or tight reuse cap |
+| **restricted** | Identity/credential-like Drive paths; auth/recovery mail; raw material matching sensitivity denylist; bulk export shapes | **Ops-issued capability** only (`/mcp/ops` or signed ops API) | Short-lived; narrower scope; mandatory audit |
+| **reflective_sensitive** | `portrait`, `self_model`, behavioural hypotheses | Mirror may read under stronger audit; write/refresh and cross-export follow portrait policy; broker excerpts **not** auto-fed into portrait inputs | Persisted as distillates but labeled + audited |
+
+**Flow**
+
+1. Agent calls `retrieve_supporting_evidence` (and optionally `request_evidence_capability` first).
+2. Policy checks: endpoint, capability class, source_types, date_range, subject_ids, max_results, permitted_fields, existing caps.
+3. Allow → redacted excerpts + `ephemeral: true` + access log.
+4. Deny → structured reason (`needs_capability`, `ops_only`, `window_exceeded`, `source_forbidden`).
+
+Agent requests never bypass policy.
 
 ---
 
 ## Workstreams
 
-### A. Credential and database privilege split
+### A. Credentials
 
-**Intent:** Mirror cannot `SELECT` from raw tables even if the app is buggy.
-
-1. Create Supabase roles (or dedicated keys) roughly:
-   - `cortex_vault` — current service-role scope for API + collectors + compilers
-   - `cortex_mirror` — SELECT on distillates, entities (read), approved views/RPCs only
-2. Expose Mirror-safe RPCs / views:
-   - Keep/extend `cortex_search_memory` for distillate hybrid search
-   - Add `cortex_retrieve_supporting_evidence(...)` (broker)
-   - Optional: `cortex_list_distillates`, portrait list RPCs
-3. Deny Mirror role on: `records`, `messages`, `turns`, `raw_artifacts`, Storage `raw`/`exports`, and unrestricted `cortex_search_records`
-4. Railway: MCP **Mirror** service uses `SUPABASE_MIRROR_KEY` (or renamed); API / pipeline jobs keep service role
-5. Short-term escape hatch: single MCP binary, two env modes (`CORTEX_MCP_PROFILE=mirror|ops`) before splitting services
+1. **Vault credential (non-interactive):** today’s service-role equivalent for API, collector, compilers, twin-pipeline. Never configure this on the Mirror client path.
+2. **Mirror credential:** SELECT/EXECUTE only on distillates, entities (read), sanitised calendar view, `cortex_search_memory`, broker RPC, portrait read RPCs as allowed by policy.
+3. Deny Mirror on: `records` (raw), `messages`, `turns`, `raw_artifacts`, Storage buckets, unrestricted `cortex_search_records`.
+4. Railway MCP process may hold **both** keys server-side initially, but:
+   - Mirror endpoint handlers use **only** Mirror DB client
+   - Ops / compiler HTTP jobs / internal distill routes use vault client
+5. Later: split processes if desired; not required for v1
 
 **Acceptance**
 
-- With Mirror key alone, PostgREST cannot read `records` / `messages`
-- `search_memory` / distillate list still work
-- Compilers on vault key still distill
+- Mirror DB client cannot `SELECT` `records` / `messages`
+- Compilers on vault credential still distill
+- Compromising a Mirror-only token does not yield service-role SQL
 
 ---
 
-### B. Default Mirror tool surface
+### B. Two MCP endpoints (one service)
 
-**Intent:** Connected agents are not vault admins.
+| Endpoint | Audience | Tools |
+|----------|----------|-------|
+| `/mcp` (Mirror) | Cursor / executive agents | Distillate search, ask_mirror, sanitised calendar, twin read/write that stay on derived memory, evidence request + broker (policy-gated), gated portrait tools |
+| `/mcp/ops` | Operators / maintenance | Vault tools (search_records, full session, full thread, file dumps), capability issuance for **restricted**, maintenance |
 
-**Keep on default Mirror profile**
+Cursor default config points at **Mirror only**.
 
-- `cortex_help`, `search_memory`, `ask_mirror`
-- `list_recent_work` (session/github/email **distillate-biased** or metadata-only; see note below)
-- Twin: `list_decisions` / `capture_decision`, `priority_vs_actual`, `refresh_self_model` / `get_portrait` / `list_portrait_versions`, `allocator_context`
-- Entities: read-oriented `list_entities`, `get_entity_links` (writes optional / ops-only)
-
-**Move off default Mirror profile → ops profile or broker**
+**Mirror must not register**
 
 - `search_records`
 - `get_email_thread`
-- `get_session` (full messages)
-- `get_calendar_range` (or keep as broker-approved thin calendar tool — decide in B1)
-- `get_file_summary` / ebook / spotify / youtube list tools that dump vault rows
+- `get_session` / full message dump
+- Raw `get_file_summary` / firehose list tools
+- Unsanitised calendar (descriptions/attachments)
 
-**B1 decision (calendar):** Prefer thin `get_calendar_range` on Mirror if it returns only summary/start/end/attendee count (no descriptions/bodies). Otherwise route through broker.
+**Sanitised calendar on Mirror**
 
-**B2 decision (`list_recent_work`):** Prefer returning session titles + distillate snippets / github_outcome digests, not raw email payloads.
+- View or RPC: `id`, `summary`/`title`, `start`, `end`, `attendee_count`, optional `meeting_type` from digest join — **no** `description`, attachment payloads, or conference join secrets
+- Descriptions / attachments → broker (`source_types=["calendar"]`, fields like `description_excerpt`)
+
+**Sessions**
+
+- No Mirror `get_session`
+- Session evidence only via broker (`source_types=["session"]`, truncated turns, permitted fields)
 
 **Acceptance**
 
-- Default Cursor MCP config only loads Mirror tools
-- Ops/debug still available via `CORTEX_MCP_PROFILE=ops` or separate URL
-- Playbook updated: raw deep-dive → `retrieve_supporting_evidence`
+- Mirror tool list contains zero raw vault browsers
+- Ops endpoint still usable for debugging
+- Playbook: deep evidence → request capability (if needed) → `retrieve_supporting_evidence`
 
 ---
 
-### C. Evidence broker
+### C. Evidence broker + policy engine
 
-**Tool / RPC shape**
+**Request shape**
 
 ```ts
 retrieve_supporting_evidence({
-  purpose: string,              // required free-text reason for audit
-  source_types: string[],       // email | session | calendar | drive | github | youtube | ...
+  purpose: string,                 // required; audited
+  source_types: string[],          // email | session | calendar | drive | github | youtube | ...
   date_range?: { since: string; until: string },
-  subject_ids?: string[],       // entity keys, project ids, thread ids, session ids
-  max_results?: number,         // hard-capped (e.g. ≤ 10)
-  permitted_fields?: string[],  // timestamp, sender, subject, body_excerpt, title, ...
-  sensitivity_ack?: boolean,    // required for sensitive categories
+  subject_ids?: string[],
+  max_results?: number,            // hard-capped
+  permitted_fields?: string[],
+  capability_id?: string,          // required when policy class ≥ sensitive
 })
 ```
 
-**Broker behavior**
+**Capability minting (sensitive)**
 
-1. Read-only
-2. Enforce source allowlist + date window (default max window e.g. 90d; sensitive shorter)
-3. Cap results and excerpt length (e.g. ≤ 500–800 chars / item)
-4. Run `@cortex/redaction` (and Drive-like PII heuristics) before return; drop items that still look like secrets
-5. Strip fields not in `permitted_fields`
-6. Log access: who/token hash, purpose, sources, ids returned, sensitivity class, model-not-yet (broker itself), timestamp
-7. Sensitive categories (`drive` body, identity-like filenames, portrait internals, auth/recovery mail) require `sensitivity_ack=true` or ops profile
-8. Response marked `ephemeral: true` — playbook: do not write broker payloads into portrait / long-term memory
+```ts
+request_evidence_capability({
+  purpose: string,
+  class: "sensitive",              // restricted only via ops
+  source_types: string[],
+  date_range: { since: string; until: string },
+  subject_ids?: string[],
+  max_results: number,
+  permitted_fields: string[],
+  ttl_seconds?: number,            // capped by policy
+})
+→ { capability_id, expires_at, scope } | { denied, reason }
+```
 
-**Wire into `ask_mirror`**
+**Restricted**
 
-- Remove ad-hoc `searchRecords` expansion for youtube/email
-- Mirror may call broker internally when confidence/gaps warrant, OR expose broker as a tool the outer agent calls before re-asking Mirror
-- Prefer **tool-visible broker** first (explicit); optional later: Mirror auto-broker with same limits + audit
+- `issue_restricted_capability` on **ops endpoint only**
+- Same scope fields; shorter TTL; mandatory ops token / operator identity in audit
+
+**Policy (deterministic)**
+
+- Map `(source_types × fields × subjects)` → class `routine | sensitive | restricted`
+- Examples:
+  - calendar structure fields → not broker (use sanitised view)
+  - calendar `description_excerpt` → sensitive
+  - session turn text → sensitive (always broker)
+  - drive body / identity-like paths → restricted or sensitive+denylist skip
+  - email body_excerpt → sensitive
+- Enforce TTL, max_results, window width, field allowlist
+- Redact via `@cortex/redaction`; skip secret/PII hits rather than “redact and still send” for high-risk patterns when policy says fail-closed
+- Return `ephemeral: true`; playbook forbids persisting into portrait / long-term agent memory
+
+**ask_mirror**
+
+- Remove silent raw `searchRecords` expansion
+- Mirror answers from distillates + sanitised calendar + citations
+- Agent may fetch broker excerpts then re-ask; Mirror does **not** auto-escalate privileges
 
 **Acceptance**
 
-- Broker returns excerpts only; secrets redacted/skipped
-- Over-limit / over-window requests rejected
-- Sensitive without ack rejected
-- Access rows appear in audit/evidence_access log
-- ask_mirror no longer silently dumps raw email/youtube payloads
+- Sensitive without valid capability → deny
+- Restricted without ops-issued capability → deny
+- Expired / overscope capability → deny
+- Excerpts only; access logged
+- ask_mirror does not pull raw email/youtube implicitly
 
 ---
 
-### D. Interpretation audit + retention metadata
+### D. Interpretation audit
 
-Extend beyond route-level `audit_log`:
+Every Mirror interpretation and broker access logs:
 
 | Field | Example |
 |-------|---------|
-| purpose | user query or broker purpose |
-| surface | `ask_mirror` \| `retrieve_supporting_evidence` \| `portrait` |
-| model / provider | OpenRouter model id |
-| evidence_classes | `distillate` \| `broker_excerpt` |
-| source_refs | distillate ids / record ids returned |
+| purpose | query or broker purpose |
+| surface | `ask_mirror` \| `retrieve_supporting_evidence` \| `request_evidence_capability` \| `portrait` |
+| endpoint | `mirror` \| `ops` |
+| model / provider | when LLM invoked |
+| evidence_classes | `distillate` \| `sanitised_calendar` \| `broker_excerpt` |
+| capability_id / class | if used |
+| source_refs | ids returned |
 | retention | `ephemeral` \| `persisted_distillate` \| `portrait` |
-| zdr / data_collection flags | from env |
+| zdr / data_collection | env flags |
 | token_id_hash | existing |
 
 **Acceptance**
 
-- Every `ask_mirror` and broker call writes a structured audit row
-- Ops can answer: what raw ids were sent to which model, when
+- Can answer: what raw ids left the vault, under which capability, toward which model
 
 ---
 
-### E. Sensitive derived memory
+### E. Portrait / behavioural model protection
 
-1. Tag `portrait`, `self_model`, and claims with `claimType=hypothesis` as sensitivity class `reflective_sensitive`
-2. Default Mirror can read portraits; exporting/sending full portrait text to third-party tools should follow same audit as broker
-3. Do not auto-merge broker raw excerpts into portrait refresh inputs unless explicitly flagged
+1. Label `portrait`, `self_model`, and hypothesis-heavy artefacts `reflective_sensitive`
+2. Stronger audit on read and refresh than ordinary digests
+3. Portrait refresh inputs = distillates / briefs / priority_vs_actual / prior portrait — **not** broker ephemeral excerpts by default
+4. Ops capability required to export or bulk-dump portraits if that tool exists
 
 **Acceptance**
 
-- Portrait refresh audit includes model + source distillate ids
 - Broker excerpts excluded from portrait inputs by default
+- Portrait refresh audit includes model + source distillate ids
 
 ---
 
-### F. Provider / egress hygiene (policy, light code)
+### F. Provider / egress hygiene
 
-Document and verify (mostly ops):
-
-- What Mirror/broker transmit (excerpts vs full bodies)
-- Provider (OpenRouter / OpenAI) and ZDR / data-collection settings already used for distillates
-- No broker content in verbose Railway logs
-- Third-party PII awareness for email/Drive excerpts
-
-No change to training defaults assumed; keep current ZDR-oriented distillate settings and apply same HTTP client defaults to Mirror/broker LLM calls.
+- Transmit excerpts only through broker path
+- Apply same ZDR / data-collection client defaults as distillate path
+- Do not log broker bodies to Railway stdout
+- Document third-party PII in email/Drive excerpts
 
 ---
 
-## Suggested implementation sequence
+## Implementation sequence
 
-| Step | Work | Depends | Risk |
-|------|------|---------|------|
-| 0 | ADR / this plan agreed; decide B1 calendar + B2 list_recent_work | — | Low |
-| 1 | Mirror tool profile split (`mirror` vs `ops`) — **no DB change yet** | 0 | Low — fastest risk reduction |
-| 2 | Evidence broker tool + RPC stub over existing service role (limits + redaction + log) | 1 | Medium |
-| 3 | Remove silent raw expansion from `ask_mirror`; use broker or distillates only | 2 | Medium |
-| 4 | Interpretation audit fields | 2–3 | Low |
-| 5 | Supabase `cortex_mirror` role + revoke raw table access; MCP uses Mirror key | 2–4 | Higher — needs careful deploy |
-| 6 | Portrait sensitivity + exclude broker excerpts from portrait inputs | 3–4 | Low |
-| 7 | Optional: split Railway MCP mirror vs ops services | 5 | Ops |
-
-**Do step 1 before step 5.** Tool-surface lockdown reduces blast radius immediately; DB role split hardens it.
+| Step | Work | Risk |
+|------|------|------|
+| 1 | Dual endpoints + Mirror tool allowlist (still one DB key) | Low — immediate blast-radius cut |
+| 2 | Sanitised calendar view/RPC; wire Mirror calendar tool to it | Low |
+| 3 | Capability store + policy engine + broker tool/RPC (vault key behind broker only) | Medium |
+| 4 | Remove ask_mirror silent raw expansion; playbook update | Medium |
+| 5 | Interpretation / capability / broker audit rows | Low |
+| 6 | Portrait `reflective_sensitive` + input exclusion | Low |
+| 7 | Mirror DB role + MCP Mirror handlers on Mirror key; vault key only for ops/compilers/broker internals as designed | Higher |
+| 8 | Optional later: separate Railway services | Ops |
 
 ---
 
-## Rollout / verification
+## Verification
 
 ```powershell
-# Profile
-CORTEX_MCP_PROFILE=mirror   # default
-CORTEX_MCP_PROFILE=ops      # vault tools
-
-# Broker dry checks
-# - email last 30d, max_results=3, permitted_fields=timestamp,sender,subject,body_excerpt
-# - drive without sensitivity_ack → reject
-# - password-like preview → skipped/redacted
-
-# Mirror
+# Mirror endpoint: no search_records / get_session / get_email_thread
+# Sanitised calendar: structure fields only
+# Broker session request without capability → deny (sensitive)
+# Mint sensitive capability → broker returns excerpts → expires
+# Restricted without ops capability → deny
+# ask_mirror: distillate citations; no implicit raw email dump
 pnpm quality-gate -- --limit=11
-# ask_mirror operational Q → distillate citations only
-# ask_mirror needing raw → agent calls retrieve_supporting_evidence then re-asks
-
-# Privilege
-# Mirror key: SELECT records → fail
-# Vault key: compilers still run
+# Mirror key cannot SELECT records; vault key compilers still run
 ```
 
 ---
 
 ## Success criteria
 
-1. Default connected agent cannot perform unrestricted vault search
-2. Mirror credential cannot read raw tables directly
-3. Raw access only via broker with purpose, caps, redaction, audit
-4. Most queries answered from distillates/embeddings/briefs/portraits
-5. Quality-gate does not regress (≥50%, target 11/11) after ask_mirror raw-expansion removal
-6. Operators can audit what raw evidence left the vault toward which model
-
----
-
-## Open questions (resolve in step 0)
-
-1. Calendar on Mirror thin tool vs broker-only?
-2. Broker auto-called inside `ask_mirror` vs agent-orchestrated only?
-3. Human approval mechanism for sensitive: env flag, ops profile, or future UI?
-4. One MCP service with profiles vs two Railway services from day one?
-5. Should `list_recent_work` stay Mirror-facing if it still touches `records` under the hood? (If yes, rewrite to distillate/entity index before role split.)
+1. Mirror endpoint exposes no raw vault browsers; sessions are broker-only
+2. Calendar structure available sanitised; descriptions/attachments only via broker
+3. Agent can request evidence; policy + capabilities decide access
+4. Sensitive = short-lived scoped caps; restricted = ops-issued only
+5. Compilers use separate non-interactive vault credential
+6. Portraits / behavioural models have stronger controls than ordinary distillates
+7. Quality-gate does not regress after raw-expansion removal
+8. Auditable trail for raw egress and interpretation calls
