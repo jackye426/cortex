@@ -12,6 +12,14 @@ import {
 } from "./project-brief.js";
 import { runYoutubeInterestDigest } from "./youtube-digest.js";
 import { refreshPortrait } from "./portrait.js";
+import {
+  enabledSourceAdapters,
+  NIGHTLY_ADAPTER_IDS,
+  runSourceAdapter,
+  WEEKLY_ADAPTER_IDS,
+  type SourceAdapterResult,
+} from "./source-adapters.js";
+import { isoWeekKey } from "./week-helpers.js";
 
 export type TwinPipelineMode = "nightly" | "weekly" | "backfill";
 
@@ -26,6 +34,10 @@ export interface TwinPipelineOptions {
   portrait?: boolean;
   /** Skip YouTube digest (default false). */
   skipYoutube?: boolean;
+  /** Per enabled source adapter write cap (default 15). */
+  sourceAdapterLimit?: number;
+  /** Force recompile source adapters (ignore fingerprint skip). */
+  forceSourceAdapters?: boolean;
 }
 
 export interface TwinPipelineResult {
@@ -42,6 +54,13 @@ export interface TwinPipelineResult {
   priorityWeek?: string;
   selfModelUpdated?: boolean;
   portraitWritten?: boolean;
+  sourceAdapters?: Array<{
+    adapter: string;
+    written: number;
+    skipped: number;
+    scanned: number;
+    skippedSensitive?: number;
+  }>;
 }
 
 async function runDistillateBatches(
@@ -78,6 +97,48 @@ async function runDistillateBatches(
   return { batches, processed, written };
 }
 
+async function runEnabledSourceAdapters(
+  store: CortexStore,
+  opts: {
+    cadence: "nightly" | "weekly";
+    dryRun: boolean;
+    limit: number;
+    force?: boolean;
+  },
+): Promise<SourceAdapterResult[]> {
+  const enabled = new Set(enabledSourceAdapters());
+  const allowed =
+    opts.cadence === "nightly" ? NIGHTLY_ADAPTER_IDS : WEEKLY_ADAPTER_IDS;
+  const ids = allowed.filter((id) => enabled.has(id));
+  const results: SourceAdapterResult[] = [];
+  const weekKey =
+    opts.cadence === "weekly" ? isoWeekKey() : undefined;
+
+  for (const id of ids) {
+    try {
+      const result = await runSourceAdapter(store, id, {
+        dryRun: opts.dryRun,
+        limit: opts.limit,
+        force: opts.force,
+        weekKey,
+      });
+      results.push(result);
+      console.info(
+        `[twin-pipeline] source-adapter ${id}: written=${result.written} skipped=${result.skipped} scanned=${result.scanned}` +
+          (result.skippedSensitive != null
+            ? ` skippedSensitive=${result.skippedSensitive}`
+            : ""),
+      );
+    } catch (err) {
+      console.warn(
+        `[twin-pipeline] source-adapter ${id} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return results;
+}
+
 export async function runTwinPipeline(
   store: CortexStore,
   options: TwinPipelineOptions = {},
@@ -88,6 +149,7 @@ export async function runTwinPipeline(
   const maxBatches =
     options.maxBatches ??
     (mode === "backfill" ? 30 : mode === "weekly" ? 15 : 10);
+  const sourceLimit = options.sourceAdapterLimit ?? 15;
 
   const out: TwinPipelineResult = {
     mode,
@@ -107,6 +169,26 @@ export async function runTwinPipeline(
   out.distillateBatches = distill.batches;
   out.distillateProcessed = distill.processed;
   out.distillateWritten = distill.written;
+
+  // Nightly (+ backfill): enabled operational source adapters
+  if (mode === "nightly" || mode === "backfill") {
+    const nightly = await runEnabledSourceAdapters(store, {
+      cadence: "nightly",
+      dryRun,
+      limit: sourceLimit,
+      force: options.forceSourceAdapters,
+    });
+    out.sourceAdapters = [
+      ...(out.sourceAdapters ?? []),
+      ...nightly.map((r) => ({
+        adapter: r.adapter,
+        written: r.written,
+        skipped: r.skipped,
+        scanned: r.scanned,
+        skippedSensitive: r.skippedSensitive,
+      })),
+    ];
+  }
 
   if (!options.skipYoutube) {
     const yt = await runYoutubeInterestDigest(store, { dryRun });
@@ -147,6 +229,24 @@ export async function runTwinPipeline(
   }
 
   if (mode === "weekly") {
+    // Reflective week digests for enabled adapters (current ISO week)
+    const weekly = await runEnabledSourceAdapters(store, {
+      cadence: "weekly",
+      dryRun,
+      limit: Math.max(sourceLimit, 200),
+      force: options.forceSourceAdapters,
+    });
+    out.sourceAdapters = [
+      ...(out.sourceAdapters ?? []),
+      ...weekly.map((r) => ({
+        adapter: r.adapter,
+        written: r.written,
+        skipped: r.skipped,
+        scanned: r.scanned,
+        skippedSensitive: r.skippedSensitive,
+      })),
+    ];
+
     const pva = await runPriorityVsActual(store, { dryRun });
     out.priorityWeek = pva.weekKey;
     console.info(

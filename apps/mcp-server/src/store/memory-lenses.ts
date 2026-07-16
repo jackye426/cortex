@@ -13,6 +13,7 @@ export const OPERATIONAL_KINDS = [
   "email_thread_digest",
   "calendar_event_digest",
   "github_outcome_digest",
+  "drive_file_digest",
 ] as const;
 
 export const REFLECTIVE_KINDS = [

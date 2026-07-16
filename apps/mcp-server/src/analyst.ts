@@ -161,6 +161,11 @@ export async function askMirror(
     trimmed,
   );
   const wantsCalendar = /\b(calendar|meeting|1:1|interview)\b/i.test(trimmed);
+  const wantsDrive = /\b(drive|doc|spec|brief|gdoc)\b/i.test(trimmed);
+  const wantsBrowser =
+    /\b(browser|search|bookmark|research theme)\b/i.test(trimmed);
+  const wantsSpotify = /\b(spotify|listening|podcast|music)\b/i.test(trimmed);
+  const wantsYoutube = /\b(youtube|watching)\b/i.test(trimmed);
 
   const memory = await store.searchMemory(trimmed, {
     limit,
@@ -200,6 +205,10 @@ export async function askMirror(
   if (wantsEmail) boostKinds.push("email_thread_digest");
   if (wantsGithub) boostKinds.push("github_outcome_digest");
   if (wantsCalendar) boostKinds.push("calendar_event_digest");
+  if (wantsDrive) boostKinds.push("drive_file_digest");
+  if (wantsBrowser) boostKinds.push("browser_interest_digest");
+  if (wantsSpotify) boostKinds.push("spotify_interest_digest");
+  if (wantsYoutube) boostKinds.push("youtube_interest_digest");
 
   const [recentDistillates, boosted] = await Promise.all([
     store.listDistillates({ limit: 40 }),
@@ -213,6 +222,16 @@ export async function askMirror(
   const byId = new Map(distillates.map((d) => [d.id, d]));
 
   // Source-aware boost: vector search often floods with session summaries.
+  // When the query already matched a source intent (wants*), treat as topical so
+  // drive/browser/spotify/youtube digests are not dropped for missing token overlap.
+  const sourceIntent =
+    wantsEmail ||
+    wantsGithub ||
+    wantsCalendar ||
+    wantsDrive ||
+    wantsBrowser ||
+    wantsSpotify ||
+    wantsYoutube;
   if (boostKinds.length) {
     const boostedEvidence: AskMirrorResult["evidence"] = [];
     for (const d of boosted) {
@@ -223,9 +242,10 @@ export async function askMirror(
         .split(/[^a-z0-9]+/)
         .filter((t) => t.length >= 4);
       const topical =
+        sourceIntent ||
         tokens.length === 0 ||
         tokens.some((t) => hay.includes(t)) ||
-        /email|gmail|commitment|open loop|docmap|pilot|github|calendar|meeting/i.test(
+        /email|gmail|commitment|open loop|docmap|pilot|github|calendar|meeting|drive|doc|spec|brief|browser|bookmark|spotify|youtube|watching/i.test(
           trimmed,
         );
       if (!topical) continue;

@@ -13,6 +13,7 @@ describe("memory lenses", () => {
     const kinds = kindsForMode("operational");
     assert.ok(kinds?.includes("summary"));
     assert.ok(kinds?.includes("project_brief"));
+    assert.ok(kinds?.includes("drive_file_digest"));
     assert.equal(kinds?.includes("youtube_interest_digest"), false);
   });
 

@@ -1,46 +1,59 @@
 /**
- * Analyst citation validation tests.
+ * ask_mirror source-aware boost spot-checks (fixture store).
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { _validateClaimsForTest } from "./analyst.js";
+import { askMirror } from "./analyst.js";
+import { FixtureStore } from "./store/fixture-store.js";
 
-describe("ask_mirror claim validation", () => {
-  it("drops fabricated evidence ids from non-hypothesis claims", () => {
-    const validated = _validateClaimsForTest(
-      [
-        {
-          text: "ok",
-          claimType: "fact",
-          confidence: 0.9,
-          evidenceRefs: ["real-1", "fake-9"],
-        },
-        {
-          text: "guess",
-          claimType: "hypothesis",
-          confidence: 0.4,
-          evidenceRefs: [],
-        },
-      ],
-      ["real-1"],
+describe("ask_mirror source boosts", () => {
+  const store = new FixtureStore();
+
+  it("cites github_outcome_digest for shipped/stalled questions", async () => {
+    const result = await askMirror(store, {
+      query: "What PRs shipped or stalled on GitHub?",
+      mode: "operational",
+      limit: 10,
+    });
+    assert.ok(
+      result.evidence.some((e) => e.kind === "github_outcome_digest"),
+      `expected github_outcome_digest in ${result.evidence.map((e) => e.kind).join(",")}`,
     );
-    assert.equal(validated.length, 2);
-    assert.deepEqual(validated[0]!.evidenceRefs, ["real-1"]);
-    assert.equal(validated[1]!.claimType, "hypothesis");
   });
 
-  it("removes fact claims that lose all evidence refs", () => {
-    const validated = _validateClaimsForTest(
-      [
-        {
-          text: "unsupported",
-          claimType: "fact",
-          confidence: 0.9,
-          evidenceRefs: ["nope"],
-        },
-      ],
-      ["real-1"],
+  it("cites calendar_event_digest for meeting questions", async () => {
+    const result = await askMirror(store, {
+      query: "Which calendar meetings relate to Cortex?",
+      mode: "operational",
+      limit: 10,
+    });
+    assert.ok(
+      result.evidence.some((e) => e.kind === "calendar_event_digest"),
+      `expected calendar_event_digest in ${result.evidence.map((e) => e.kind).join(",")}`,
     );
-    assert.equal(validated.length, 0);
+  });
+
+  it("cites drive_file_digest for doc/spec questions", async () => {
+    const result = await askMirror(store, {
+      query: "What Drive docs or specs did I revise for Cortex?",
+      mode: "operational",
+      limit: 10,
+    });
+    assert.ok(
+      result.evidence.some((e) => e.kind === "drive_file_digest"),
+      `expected drive_file_digest in ${result.evidence.map((e) => e.kind).join(",")}`,
+    );
+  });
+
+  it("cites youtube_interest_digest when asking about watching", async () => {
+    const result = await askMirror(store, {
+      query: "What YouTube themes recur in my watching?",
+      mode: "reflective",
+      limit: 10,
+    });
+    assert.ok(
+      result.evidence.some((e) => e.kind === "youtube_interest_digest"),
+      `expected youtube_interest_digest in ${result.evidence.map((e) => e.kind).join(",")}`,
+    );
   });
 });

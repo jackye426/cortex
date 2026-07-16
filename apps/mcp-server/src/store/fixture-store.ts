@@ -227,8 +227,24 @@ export class FixtureStore implements CortexStore {
   ): Promise<RecordHit[]> {
     return FIXTURE_RECORDS.filter((r) => r.recordType === recordType).slice(
       0,
-      Math.max(1, Math.min(limit, 100)),
+      Math.max(1, Math.min(limit, 500)),
     );
+  }
+
+  async listRecordsByTypeInRange(
+    recordType: string,
+    since: string,
+    until: string,
+    limit = 500,
+  ): Promise<RecordHit[]> {
+    const capped = Math.max(1, Math.min(limit, 2000));
+    return FIXTURE_RECORDS.filter(
+      (r) =>
+        r.recordType === recordType &&
+        Boolean(r.occurredAt) &&
+        (r.occurredAt as string) >= since &&
+        (r.occurredAt as string) < until,
+    ).slice(0, capped);
   }
 
   async listSessionsForDistillate(

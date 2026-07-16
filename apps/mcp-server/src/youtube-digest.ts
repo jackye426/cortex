@@ -1,5 +1,6 @@
 /**
  * Weekly YouTube interest digests — first cross-source embedded adapter.
+ * Prefer Takeout `youtube_watch` rows for true week grain (library dates are sparse).
  */
 import {
   chatJsonCompletion,
@@ -12,6 +13,12 @@ import { normalizeTopic } from "./store/memory-lenses.js";
 import { stableSubjectUuid } from "./stable-id.js";
 import type { CortexStore } from "./store/index.js";
 import type { DistillateRow, RecordHit } from "./store/types.js";
+import {
+  inWeek,
+  isoWeekKey,
+  sourceFingerprint,
+  weekRange,
+} from "./week-helpers.js";
 
 export interface YoutubeDigestOptions {
   /** ISO week key e.g. 2026-W28; default previous completed week. */
@@ -29,42 +36,6 @@ export interface YoutubeDigestResult {
   written: number;
   skipped: number;
   distillate: DistillateRow | null;
-}
-
-function isoWeekKey(d = new Date()): string {
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  // Thursday in current week decides the year
-  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil(
-    ((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7,
-  );
-  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
-}
-
-function weekRange(weekKey: string): { start: string; end: string } {
-  const m = /^(\d{4})-W(\d{2})$/.exec(weekKey);
-  if (!m) {
-    const end = new Date();
-    const start = new Date(end);
-    start.setUTCDate(start.getUTCDate() - 7);
-    return { start: start.toISOString(), end: end.toISOString() };
-  }
-  const year = Number(m[1]);
-  const week = Number(m[2]);
-  // ISO week: Monday of week 1 contains Jan 4
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const day = jan4.getUTCDay() || 7;
-  const monday = new Date(jan4);
-  monday.setUTCDate(jan4.getUTCDate() - day + 1 + (week - 1) * 7);
-  const sunday = new Date(monday);
-  sunday.setUTCDate(monday.getUTCDate() + 7);
-  return { start: monday.toISOString(), end: sunday.toISOString() };
-}
-
-function inWeek(iso: string | null, start: string, end: string): boolean {
-  if (!iso) return false;
-  return iso >= start && iso < end;
 }
 
 function recordTitle(r: RecordHit): string {
@@ -146,11 +117,12 @@ export async function runYoutubeInterestDigest(
   const dryRun = Boolean(options.dryRun);
   const weekKey = options.weekKey ?? isoWeekKey(new Date(Date.now() - 3 * 86400000));
   const { start, end } = weekRange(weekKey);
-  const limit = options.limitRecords ?? 200;
+  const limit = options.limitRecords ?? 500;
 
+  // Range query — avoids the old top-N cap hiding in-week Takeout watches.
   const [videos, watches] = await Promise.all([
-    store.listRecordsByType("youtube_video", limit),
-    store.listRecordsByType("youtube_watch", limit),
+    store.listRecordsByTypeInRange("youtube_video", start, end, limit),
+    store.listRecordsByTypeInRange("youtube_watch", start, end, limit),
   ]);
   const all = [...videos, ...watches].filter((r) =>
     inWeek(r.occurredAt, start, end),
@@ -168,7 +140,8 @@ export async function runYoutubeInterestDigest(
     };
   }
 
-  // Idempotency: skip if digest exists with same compiler version unless force
+  const fingerprint = sourceFingerprint(all);
+  // Idempotency: skip if digest exists with same compiler + fingerprint unless force
   const subjectId = stableSubjectUuid("youtube-week", weekKey);
   if (!options.force) {
     const existing = await store.listDistillates({
@@ -180,7 +153,11 @@ export async function runYoutubeInterestDigest(
         (d.subjectId === subjectId || d.metadata.weekKey === weekKey) &&
         d.metadata.compilerVersion === YOUTUBE_COMPILER_VERSION,
     );
-    if (hit) {
+    if (
+      hit &&
+      (!hit.metadata.sourceFingerprint ||
+        hit.metadata.sourceFingerprint === fingerprint)
+    ) {
       return {
         mode: store.mode,
         dryRun,
@@ -277,6 +254,7 @@ Rules: topics are normalized themes (not video titles); recurring needs >1 suppo
     })),
     confidence,
     compilerVersion: YOUTUBE_COMPILER_VERSION,
+    sourceFingerprint: fingerprint,
     weekKey,
     periodStart: start,
     periodEnd: end,
