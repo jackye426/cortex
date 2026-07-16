@@ -31,7 +31,7 @@ optional versioned portrait (after quality gate)
 | Connection candidates (ephemeral ranking) | Yes |
 | `ask_mirror` cited synthesis | Yes |
 | Versioned `portrait` snapshots | Yes (weekly / on demand) |
-| Email/calendar/GitHub/Spotify/Drive/browser adapters | Post-gate; grain plan + enablement order in [source-adapters.md](source-adapters.md) |
+| Email/calendar/GitHub/Spotify/Drive/browser adapters | Yes — post-gate v2 compilers; enabled by default in twin-pipeline ([source-adapters.md](source-adapters.md)) |
 
 ## Commands
 
