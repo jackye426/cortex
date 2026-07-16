@@ -14,15 +14,15 @@ Session + YouTube digests ship in v1. Other sources stay **keyword-only in retri
 | 5 | `browser-interest` | `browser-interest-v2` | One digest per ISO week (bookmarks + searches) | Week-scoped (not all-time newest) |
 | 6 | `spotify-interest` | `spotify-interest-v2` | One digest per ISO week of plays/episodes | No `[object Object]` artists; week-scoped |
 
-Enable in twin-pipeline via env (comma list). **Default is `email-thread` only** — stubs must not auto-run until gated:
+Enable in twin-pipeline via env (comma list). **Default (post-acceptance)** runs all gated adapters:
+
+`email-thread,github-outcome,calendar-event,drive-file,browser-interest,spotify-interest`
 
 ```bash
-# After local acceptance (dry-run → live ≤5 → quality-gate + Mirror cites):
-CORTEX_SOURCE_ADAPTERS=email-thread,github-outcome,calendar-event,drive-file,browser-interest,spotify-interest
+# Optional override on Railway MCP / Windows pm2 .env:
+CORTEX_SOURCE_ADAPTERS=email-thread,github-outcome,calendar-event
+CORTEX_SOURCE_ADAPTERS=none   # disable scheduled source adapters
 ```
-
-Set the same var on the Railway MCP service (and/or Windows `.env` used by pm2 twin cron).  
-Set `CORTEX_SOURCE_ADAPTERS=none` to disable scheduled source adapters.
 
 ## Ingest vs distill cadence
 

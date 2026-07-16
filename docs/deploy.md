@@ -53,7 +53,7 @@ Distillates do not run on ingest — schedule `POST /v1/twin-pipeline` on the MC
 | `0 3 * * *` (daily) | `{"mode":"nightly"}` — sessions + YouTube + enabled operational source adapters |
 | `0 4 * * 0` (Sunday) | `{"mode":"weekly"}` — briefs/priority/portrait + enabled reflective adapters |
 
-Enable source adapters with `CORTEX_SOURCE_ADAPTERS` (default `email-thread` only). See [source-adapters.md](source-adapters.md) for grain, fingerprints, and lag model.
+Source adapters default to the accepted post-gate set; override with `CORTEX_SOURCE_ADAPTERS` (or `none`). See [source-adapters.md](source-adapters.md).
 
 Backfill remaining sessions manually (or a one-off cron with higher `maxBatches`):
 
