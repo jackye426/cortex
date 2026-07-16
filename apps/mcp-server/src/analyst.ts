@@ -222,6 +222,16 @@ export async function askMirror(
   const byId = new Map(distillates.map((d) => [d.id, d]));
 
   // Source-aware boost: vector search often floods with session summaries.
+  // When the query already matched a source intent (wants*), treat as topical so
+  // drive/browser/spotify/youtube digests are not dropped for missing token overlap.
+  const sourceIntent =
+    wantsEmail ||
+    wantsGithub ||
+    wantsCalendar ||
+    wantsDrive ||
+    wantsBrowser ||
+    wantsSpotify ||
+    wantsYoutube;
   if (boostKinds.length) {
     const boostedEvidence: AskMirrorResult["evidence"] = [];
     for (const d of boosted) {
@@ -232,9 +242,10 @@ export async function askMirror(
         .split(/[^a-z0-9]+/)
         .filter((t) => t.length >= 4);
       const topical =
+        sourceIntent ||
         tokens.length === 0 ||
         tokens.some((t) => hay.includes(t)) ||
-        /email|gmail|commitment|open loop|docmap|pilot|github|calendar|meeting/i.test(
+        /email|gmail|commitment|open loop|docmap|pilot|github|calendar|meeting|drive|doc|spec|brief|browser|bookmark|spotify|youtube|watching/i.test(
           trimmed,
         );
       if (!topical) continue;

@@ -17,9 +17,11 @@ Session + YouTube digests ship in v1. Other sources stay **keyword-only in retri
 Enable in twin-pipeline via env (comma list). **Default is `email-thread` only** — stubs must not auto-run until gated:
 
 ```bash
-CORTEX_SOURCE_ADAPTERS=email-thread,github-outcome,calendar-event
+# After local acceptance (dry-run → live ≤5 → quality-gate + Mirror cites):
+CORTEX_SOURCE_ADAPTERS=email-thread,github-outcome,calendar-event,drive-file,browser-interest,spotify-interest
 ```
 
+Set the same var on the Railway MCP service (and/or Windows `.env` used by pm2 twin cron).  
 Set `CORTEX_SOURCE_ADAPTERS=none` to disable scheduled source adapters.
 
 ## Ingest vs distill cadence
