@@ -263,7 +263,9 @@ Rules:
         : fallbackContent;
     const asStrings = (v: unknown): string[] =>
       Array.isArray(v)
-        ? v.filter((x): x is string => typeof x === "string" && x.trim()).map((s) => s.trim())
+        ? v
+            .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+            .map((s) => s.trim())
         : [];
     const commitments = asStrings(parsed.commitments).slice(0, 8);
     const openLoops = asStrings(parsed.openLoops).slice(0, 8);
