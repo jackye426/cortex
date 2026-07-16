@@ -112,10 +112,13 @@ async function postEnvelopeOnce(
 
   const obj = json && typeof json === "object" ? (json as Record<string, unknown>) : {};
   if (!res.ok) {
+    const err =
+      typeof obj.error === "string" ? obj.error : `HTTP ${res.status}`;
+    const detail = typeof obj.detail === "string" ? obj.detail : undefined;
     return {
       ok: false,
       status: res.status,
-      error: typeof obj.error === "string" ? obj.error : `HTTP ${res.status}`,
+      error: detail ? `${err}: ${detail}` : err,
     };
   }
 

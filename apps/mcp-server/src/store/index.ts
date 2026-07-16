@@ -7,6 +7,9 @@ export type { CortexStore } from "./types.js";
 
 /** Prefer Supabase when URL + key are set; otherwise fixture mode. */
 export function createStore(): CortexStore {
+  if (process.env.CORTEX_FORCE_FIXTURE?.trim() === "1") {
+    return new FixtureStore();
+  }
   if (isSupabaseConfigured()) {
     try {
       return SupabaseStore.fromEnv();

@@ -11,8 +11,9 @@ Personal AI/session vault, canonical store, and remote MCP. **Collectors run nat
 | Collectors (Windows) | Claude/Codex/Cursor sessions, GitHub, Google Workspace, Calibre, bookmarks, Spotify, YouTube API |
 | Ingest API + MCP | Railway; bearer auth; work-biased `list_recent_work`, payload `search_records`, hybrid `search_memory` |
 | Distillates | OpenAI-compatible HTTP (`OPENAI_API_KEY`); embed on write; `pnpm embed-backfill` for existing rows |
-| Twin (D1–D5) | Entities, project briefs, priority_vs_actual, decisions, self_model, allocator_context — see [docs/twin.md](docs/twin.md) |
-| Parallel data | YouTube Takeout + ChatGPT export when ZIPs ready — does not block MCP |
+| Twin (D1–D5) | Entities, project briefs, priority_vs_actual, decisions, self_model/portrait, allocator_context, ask_mirror — see [docs/twin.md](docs/twin.md) / [docs/memory-substrate.md](docs/memory-substrate.md) |
+| Source adapters | Post-gate grain plan (email → GitHub → calendar…) — [docs/source-adapters.md](docs/source-adapters.md) |
+| Parallel data | YouTube Takeout + ChatGPT export (sharded ZIP supported) — does not block MCP |
 
 **Phases (history):** 0 scaffold → 1 AI adapters → 2b Calibre/browser → 3 ChatGPT → 4 GitHub → 5 Google → 5b Spotify/YouTube → 6 MCP → 7 hardening. Details in `docs/`.
 
@@ -83,7 +84,7 @@ pnpm backfill -- --source=browser --limit=50
 
 Paths and noise rules: [docs/sources.md](docs/sources.md). Calibre is metadata + paths only (no ebook binaries). Browser is bookmarks + `keyword_search_terms` only (no visit firehose).
 
-### ChatGPT export + extension (when ZIP ready)
+### ChatGPT export + extension
 
 Official export ZIP (Settings → Data controls → Export) plus optional MV3 extension for ongoing capture:
 
@@ -92,7 +93,7 @@ pnpm backfill -- --source=chatgpt-export --path=D:\Downloads\chatgpt.zip --dry-r
 pnpm backfill -- --source=chatgpt-export --path=D:\Downloads\chatgpt.zip
 ```
 
-Install steps: [docs/chatgpt.md](docs/chatgpt.md). **No ZIP in Downloads yet?** Skip — does not block MCP/distillates; ingest when the export arrives.
+Install steps: [docs/chatgpt.md](docs/chatgpt.md). Supports single `conversations.json` or sharded `conversations-NNN.json`.
 
 ### Phase 4 GitHub
 
@@ -178,6 +179,10 @@ See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo (including `20
 | `pnpm dev:mcp` | Run remote MCP server (tsx watch) |
 | `pnpm distillate` | Session distillates (LLM or stub); `--project-brief`, `--seed-entities`, `--priority-vs-actual`, `--self-model` |
 | `pnpm embed-backfill` | Embed existing distillates without re-LLM |
+| `pnpm youtube-digest` | Weekly YouTube interest digest |
+| `pnpm quality-gate` | Run baseline Mirror evaluation questions |
+| `pnpm source-adapter` | Post-gate source distillate adapters (`--list`) |
+| `pnpm twin-pipeline` | Nightly/weekly/backfill orchestration |
 | `pnpm dev:collector` | Run collector daemon (Google incremental sync) |
 | `pnpm pm2:start` | Start API + MCP + collector via pm2 |
 | `pnpm backfill` | Backfill → ingest |

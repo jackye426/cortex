@@ -11,6 +11,7 @@ import {
   textMatchesQuery,
   withinHorizon,
 } from "./search-helpers.js";
+import { distillateMatchesLenses, kindsForMode } from "./memory-lenses.js";
 import {
   FIXTURE_RECORDS,
   FIXTURE_SESSIONS,
@@ -287,9 +288,17 @@ export class FixtureStore implements CortexStore {
   ): Promise<MemorySearchResult> {
     const capped = Math.max(1, Math.min(options.limit ?? 15, 50));
     const trimmed = query.trim();
-    const distillates = trimmed
-      ? await this.searchDistillates(trimmed, capped * 2, options.kinds)
-      : await this.listDistillates({ limit: capped * 2, kinds: options.kinds });
+    const effectiveKinds =
+      options.kinds?.length ? options.kinds : kindsForMode(options.mode);
+    const distillatesRaw = trimmed
+      ? await this.searchDistillates(trimmed, capped * 3, effectiveKinds)
+      : await this.listDistillates({
+          limit: capped * 3,
+          kinds: effectiveKinds,
+        });
+    const distillates = distillatesRaw.filter((d) =>
+      distillateMatchesLenses(d, options),
+    );
     const records = trimmed
       ? await this.searchRecords(trimmed, {
           limit: capped,
@@ -325,19 +334,29 @@ export class FixtureStore implements CortexStore {
           subjectId: d.subjectId,
         };
       }),
-      ...records.hits.map((r) => ({
-        kind: "record" as const,
-        id: r.id,
-        score: 0.48,
-        title:
-          (typeof r.payload.title === "string" && r.payload.title) ||
-          (typeof r.payload.subject === "string" && r.payload.subject) ||
-          `${r.recordType}:${r.sourceRecordId}`,
-        snippet: JSON.stringify(r.payload).slice(0, 280),
-        sourceId: r.sourceId,
-        recordId: r.id,
-        recordType: r.recordType,
-      })),
+      ...records.hits
+        .filter((r) => {
+          if (
+            options.mode === "operational" &&
+            r.recordType.startsWith("youtube_")
+          ) {
+            return false;
+          }
+          return true;
+        })
+        .map((r) => ({
+          kind: "record" as const,
+          id: r.id,
+          score: 0.48,
+          title:
+            (typeof r.payload.title === "string" && r.payload.title) ||
+            (typeof r.payload.subject === "string" && r.payload.subject) ||
+            `${r.recordType}:${r.sourceRecordId}`,
+          snippet: JSON.stringify(r.payload).slice(0, 280),
+          sourceId: r.sourceId,
+          recordId: r.id,
+          recordType: r.recordType,
+        })),
     ];
     hits.sort((a, b) => b.score - a.score);
     const sliced = hits.slice(0, capped);

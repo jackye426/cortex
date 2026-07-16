@@ -10,6 +10,8 @@ import {
   runProjectBriefJob,
   seedEntitiesFromDistillates,
 } from "./project-brief.js";
+import { runYoutubeInterestDigest } from "./youtube-digest.js";
+import { refreshPortrait } from "./portrait.js";
 
 export type TwinPipelineMode = "nightly" | "weekly" | "backfill";
 
@@ -20,6 +22,10 @@ export interface TwinPipelineOptions {
   /** Max distillate batches per run (default 10 nightly, 30 backfill). */
   maxBatches?: number;
   dryRun?: boolean;
+  /** Enable weekly portrait snapshot (default true for weekly). */
+  portrait?: boolean;
+  /** Skip YouTube digest (default false). */
+  skipYoutube?: boolean;
 }
 
 export interface TwinPipelineResult {
@@ -30,9 +36,12 @@ export interface TwinPipelineResult {
   distillateWritten: number;
   embedBackfillUpdated: number;
   seedEntitiesLinked: number;
+  youtubeDigestWritten?: number;
+  youtubeWeekKey?: string;
   projectBriefsWritten?: number;
   priorityWeek?: string;
   selfModelUpdated?: boolean;
+  portraitWritten?: boolean;
 }
 
 async function runDistillateBatches(
@@ -99,6 +108,15 @@ export async function runTwinPipeline(
   out.distillateProcessed = distill.processed;
   out.distillateWritten = distill.written;
 
+  if (!options.skipYoutube) {
+    const yt = await runYoutubeInterestDigest(store, { dryRun });
+    out.youtubeDigestWritten = yt.written;
+    out.youtubeWeekKey = yt.weekKey;
+    console.info(
+      `[twin-pipeline] youtube-digest week=${yt.weekKey} written=${yt.written} scanned=${yt.scanned} skipped=${yt.skipped}`,
+    );
+  }
+
   const embed = await runEmbedBackfill(store, {
     limit: Math.max(batchSize * 2, 50),
     dryRun,
@@ -138,6 +156,13 @@ export async function runTwinPipeline(
       await refreshSelfModel(store, { dryRun: false });
       out.selfModelUpdated = true;
       console.info("[twin-pipeline] self-model refreshed");
+    }
+    if (options.portrait !== false) {
+      const portrait = await refreshPortrait(store, { dryRun });
+      out.portraitWritten = portrait.written;
+      console.info(
+        `[twin-pipeline] portrait written=${portrait.written} id=${portrait.portrait?.id ?? "none"}`,
+      );
     }
   }
 

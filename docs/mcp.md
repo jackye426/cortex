@@ -44,7 +44,8 @@ Call `cortex_help` from any client, or follow:
 1. **What am I building?** → `list_recent_work` (sessions + github_* + email; calendar excluded; drops `occurred_at` > now+7d). Then `search_memory` / `search_records`. Deep-dive with `get_session`.
 2. **Schedule** → `get_calendar_range` only. Do **not** use `list_recent_work` for calendar (recurring future events dominate).
 3. **Keywords** → `search_records` matches **payload text** + distillate content (not just type/source ids). Defaults exclude `calendar_event`. Empty results include a `hint` — that is real emptiness, not “sparse indexing.”
-4. **Semantic / insight** → `search_memory` (distillates first; vector when `distillates.embedding` is populated).
+4. **Semantic / insight** → `search_memory` (distillates first; vector when `distillates.embedding` is populated). Use `mode=operational|reflective|both`.
+5. **Cited synthesis** → `ask_mirror` (ephemeral; requires citations). See [memory-substrate.md](memory-substrate.md).
 
 ## Tools
 
@@ -52,16 +53,18 @@ Call `cortex_help` from any client, or follow:
 |------|---------|
 | `cortex_help` | Retrieval playbook |
 | `search_records` | Keyword search over payload + distillates; filters `recordTypes` / `sources` / `excludeTypes` / `since` / `until` |
-| `search_memory` | Hybrid distillate + record memory search |
+| `search_memory` | Hybrid distillate + record memory search with operational/reflective lenses |
+| `ask_mirror` | Citation-required Analyst synthesis (ephemeral) |
 | `get_session` | Session + messages + tool summaries + distillate |
 | `list_recent_work` | Work-biased recent sessions/records (`kinds`, `horizonDays`, `workMode`) |
 | `get_email_thread` | Gmail thread by `threadId` |
 | `get_calendar_range` | Calendar events in an ISO range (**the** schedule tool) |
 | `get_file_summary` | Drive/file summary by id |
-| `list_entities` / `upsert_entity` / `link_entity` / `get_entity_links` / `seed_entities` | Project graph (twin D1) |
+| `list_entities` / `upsert_entity` / `link_entity` / `get_entity_links` / `seed_entities` | Project/topic graph (twin D1) |
 | `capture_decision` / `list_decisions` | Decision/outcome capture + list (D3) |
 | `priority_vs_actual` | Week effort attribution distillate (D2) |
 | `refresh_self_model` | Theory-of-self distillate (D4) |
+| `get_portrait` / `list_portrait_versions` / `refresh_portrait` | Versioned portrait snapshots |
 | `allocator_context` | 3h/3w/3y prompt seed over D1–D4 (D5) |
 
 Fixture mode includes sample sessions (with embeddings), a decision distillate, a Gmail thread (`thread-alpha`), a calendar event, and a Drive file so tools work without a linked Supabase project.

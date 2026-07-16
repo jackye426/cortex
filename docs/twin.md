@@ -2,14 +2,19 @@
 
 Cortex’s Personal Executive Twin builds on **distillates + MCP search**, not Obsidian.
 
+Unified memory substrate (session sampling, lenses, YouTube digests, `ask_mirror`, portraits): see [memory-substrate.md](memory-substrate.md).
+
 | Layer | Capability | Status in repo |
 |-------|------------|----------------|
 | **C** RAG | `distillates.embedding` + hybrid `search_memory`; embed on write; `pnpm embed-backfill` | Production-useful |
-| **D1** Project graph | `entities` / `entity_links`; MCP `list_entities` / `upsert_entity` / `link_entity` / `seed_entities` | Seeded from `metadata.projects[]` |
+| **C+** Lenses | `mode=operational\|reflective\|both` + domain/topic filters | Shipped |
+| **C+** Mirror | `ask_mirror` cited synthesis (ephemeral) | Shipped |
+| **C+** YouTube | Weekly `youtube_interest_digest` | Shipped |
+| **D1** Project graph | `entities` / `entity_links`; MCP `list_entities` / `upsert_entity` / `link_entity` / `seed_entities` | Seeded from `metadata.projects[]` + topics |
 | **B3** Project briefs | `kind=project_brief` via `POST /v1/project-brief` or `pnpm distillate -- --project-brief` | Rollup + optional embed |
 | **D2** Priority vs actual | Week distillate `kind=priority_vs_actual` (session hours → projects) | Heuristic attribution |
 | **D3** Decisions & outcomes | MCP `capture_decision` + `list_decisions` | Light capture + list |
-| **D4** Theory of Jack | `kind=self_model` via `refresh_self_model` / `--self-model` | Reads D2/D3/briefs |
+| **D4** Theory of Jack | `kind=self_model` + versioned `portrait` | Reads D2/D3/briefs/interests |
 | **D5** Capital allocator | MCP `allocator_context` → 3h/3w/3y prompt seed | Grounding pack only |
 
 ## Commands
@@ -29,20 +34,25 @@ pnpm distillate -- --project-brief --limit=40
 pnpm distillate -- --priority-vs-actual
 pnpm distillate -- --self-model
 
+# YouTube interest digests + quality gate
+pnpm youtube-digest -- --dry-run
+pnpm quality-gate -- --fixture --limit=11
+pnpm quality-gate -- --limit=11
+
 # Scheduled pipeline (nightly / weekly / historical backfill)
 pnpm twin-pipeline -- --mode=nightly
 pnpm twin-pipeline -- --mode=weekly
 pnpm twin-pipeline -- --mode=backfill --max-batches=20 --batch-size=30
 ```
 
-HTTP (same bearer as MCP): `POST /v1/distillate`, `/v1/project-brief`, `/v1/embed-backfill`, `/v1/twin` (`job`: `seed-entities` | `priority-vs-actual` | `project-brief` | `self-model`), `POST /v1/twin-pipeline` (`mode`: `nightly` | `weekly` | `backfill`).
+HTTP (same bearer as MCP): `POST /v1/distillate`, `/v1/project-brief`, `/v1/embed-backfill`, `/v1/twin` (`job`: `seed-entities` | `priority-vs-actual` | `project-brief` | `self-model` | `portrait` | `youtube-digest`), `POST /v1/twin-pipeline`, `POST /v1/ask-mirror`, `POST /v1/quality-gate`, `POST /v1/source-adapter`.
 
 ## Automation
 
 | Schedule | Mode | What runs |
 |----------|------|-----------|
-| Daily 03:00 | `nightly` | Distill new sessions (skip already summarized) → embed-backfill → seed-entities |
-| Sunday 04:00 | `weekly` | Nightly + project-brief + priority-vs-actual + refresh self-model |
+| Daily 03:00 | `nightly` | Distill new sessions → YouTube digest → embed-backfill → seed-entities |
+| Sunday 04:00 | `weekly` | Nightly + project-brief + priority-vs-actual + self-model + portrait |
 | Manual | `backfill` | Repeat nightly batches until no undistilled sessions remain |
 
 **Windows (pm2):** after `pnpm --filter @cortex/mcp-server... build`, start cron apps:

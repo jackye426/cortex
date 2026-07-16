@@ -9,6 +9,7 @@ import type {
   SessionEnvelopeInput,
 } from "./types.js";
 import { fixtureEmbedFromText } from "./search-helpers.js";
+import { sampleSessionTurns, turnsToExcerpts } from "../session-sampler.js";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 
@@ -144,12 +145,59 @@ export const FIXTURE_RECORDS: RecordHit[] = [
     contentHash: "hash-gh-42",
     occurredAt: "2026-07-07T18:00:00.000Z",
   },
+  {
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    sourceId: "youtube",
+    sourceRecordId: "yt-watch-agent-1",
+    recordType: "youtube_watch",
+    payload: {
+      title: "Agent memory architectures for LLM systems",
+      channelTitle: "AI Engineering",
+      videoId: "vid-agent-1",
+      watchedAt: "2026-07-10T20:00:00.000Z",
+      descriptionPreview: "Persistent memory and retrieval for agents",
+    },
+    contentHash: "hash-yt-1",
+    occurredAt: "2026-07-10T20:00:00.000Z",
+  },
+  {
+    id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    sourceId: "youtube",
+    sourceRecordId: "yt-watch-agent-2",
+    recordType: "youtube_watch",
+    payload: {
+      title: "Building cognitive architectures for AI agents",
+      channelTitle: "AI Engineering",
+      videoId: "vid-agent-2",
+      watchedAt: "2026-07-11T21:00:00.000Z",
+      descriptionPreview: "How agents store and retrieve episodic memory",
+    },
+    contentHash: "hash-yt-2",
+    occurredAt: "2026-07-11T21:00:00.000Z",
+  },
+  {
+    id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    sourceId: "youtube",
+    sourceRecordId: "yt-watch-cook-1",
+    recordType: "youtube_watch",
+    payload: {
+      title: "Perfect pasta carbonara",
+      channelTitle: "Cooking Channel",
+      videoId: "vid-cook-1",
+      watchedAt: "2026-07-11T22:00:00.000Z",
+      descriptionPreview: "Classic Italian recipe",
+    },
+    contentHash: "hash-yt-3",
+    occurredAt: "2026-07-11T22:00:00.000Z",
+  },
 ];
 
 const summary1 =
   "Session focused on ingest API bearer auth using CORTEX_INGEST_TOKEN for Cortex vault writes.";
 const summary2 =
   "Built remote MCP search_memory and search_records scaffolding for Cortex twin retrieval.";
+const youtubeDigest =
+  "YouTube week digest: recurring interest in agent memory and cognitive architectures; one-off cooking video.";
 
 export let fixtureDistillates: DistillateRow[] = [
   {
@@ -163,10 +211,16 @@ export let fixtureDistillates: DistillateRow[] = [
     model: "fixture-stub",
     metadata: {
       fixture: true,
+      domains: ["work"],
+      domain: "work",
+      sourceType: "claude-code",
+      topics: ["cortex", "ingest-auth"],
       projects: ["Cortex"],
       repos: ["cortex"],
       nextActions: ["Deploy MCP with bearer auth"],
       commercialVsTech: "tech",
+      compilerVersion: "session-v2",
+      confidence: 0.8,
     },
     createdAt: "2026-07-10T15:31:00.000Z",
     updatedAt: "2026-07-10T15:31:00.000Z",
@@ -178,14 +232,27 @@ export let fixtureDistillates: DistillateRow[] = [
     kind: "summary",
     content: summary2,
     embeddingRef: "fixture:hash",
-    embedding: fixtureEmbedFromText(summary2),
+    embedding: fixtureEmbedFromText(summary2 + " agent memory retrieval"),
     model: "fixture-stub",
     metadata: {
       fixture: true,
+      domains: ["work"],
+      domain: "work",
+      sourceType: "cursor",
+      topics: ["cortex", "agent-memory", "mcp"],
       projects: ["Cortex", "MCP"],
       repos: ["cortex"],
       nextActions: ["Wire hybrid search_memory"],
       commercialVsTech: "tech",
+      explorationSignals: [
+        {
+          text: "Explored hybrid memory retrieval design",
+          evidenceIndices: [0],
+          confidence: 0.7,
+        },
+      ],
+      compilerVersion: "session-v2",
+      confidence: 0.8,
     },
     createdAt: "2026-07-11T12:05:00.000Z",
     updatedAt: "2026-07-11T12:05:00.000Z",
@@ -204,6 +271,8 @@ export let fixtureDistillates: DistillateRow[] = [
     model: "fixture-capture",
     metadata: {
       fixture: true,
+      domains: ["work"],
+      sourceType: "manual",
       title: "Ship distillate RAG before Obsidian",
       capture: true,
       relatedEntityKey: "cortex",
@@ -211,6 +280,36 @@ export let fixtureDistillates: DistillateRow[] = [
     },
     createdAt: "2026-07-11T13:00:00.000Z",
     updatedAt: "2026-07-11T13:00:00.000Z",
+  },
+  {
+    id: "f4444444-4444-4444-8444-444444444444",
+    subjectType: "week",
+    subjectId: "a0280000-0000-4000-8000-000000002028",
+    kind: "youtube_interest_digest",
+    content: youtubeDigest,
+    embeddingRef: "fixture:hash",
+    embedding: fixtureEmbedFromText(
+      "agent memory cognitive architectures youtube interest",
+    ),
+    model: "fixture-youtube",
+    metadata: {
+      fixture: true,
+      domains: ["interest"],
+      domain: "interest",
+      sourceType: "youtube",
+      topics: ["agent-memory", "cognitive-architecture"],
+      confidence: 0.82,
+      compilerVersion: "youtube-interest-v1",
+      weekKey: "2026-W28",
+      evidenceRefs: [
+        { type: "record", id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" },
+        { type: "record", id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" },
+      ],
+      recurring: ["AI Engineering"],
+      oneOff: ["Cooking Channel"],
+    },
+    createdAt: "2026-07-12T08:00:00.000Z",
+    updatedAt: "2026-07-12T08:00:00.000Z",
   },
 ];
 
@@ -348,6 +447,16 @@ export function fileFromRecords(
 }
 
 export function sessionToEnvelope(s: SessionDetail): SessionEnvelopeInput {
+  const turns = s.messages.map((m, i) => ({
+    index: i,
+    role: m.role,
+    content: m.content ?? "",
+    messageId: m.id,
+    toolHeavy:
+      m.role === "tool" ||
+      s.toolCalls.some((t) => (m.content ?? "").includes(t.toolName)),
+  }));
+  const sampled = sampleSessionTurns(turns);
   return {
     sourceId: s.sourceId,
     sourceSessionId: s.sourceSessionId,
@@ -355,13 +464,18 @@ export function sessionToEnvelope(s: SessionDetail): SessionEnvelopeInput {
     workspace: s.workspace,
     startedAt: s.startedAt,
     endedAt: s.endedAt,
-    excerpts: s.messages
-      .map((m) => m.content)
-      .filter((c): c is string => Boolean(c)),
+    excerpts: turnsToExcerpts(sampled.turns),
     toolSummaries: s.toolCalls.map((t) =>
       t.argsSummary ? `${t.toolName}(${t.argsSummary})` : t.toolName,
     ),
-    metadata: { ...s.metadata, sessionId: s.id },
+    sampledTurns: sampled.turns,
+    turnCount: sampled.totalTurnCount,
+    sampleStrategy: sampled.sampleStrategy,
+    metadata: {
+      ...s.metadata,
+      sessionId: s.id,
+      metadataOnly: sampled.metadataOnly,
+    },
   };
 }
 

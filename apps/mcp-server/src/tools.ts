@@ -1,11 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { askMirror } from "./analyst.js";
 import {
   embedTexts,
   embeddingModel,
   openaiConfigured,
 } from "./llm.js";
+import {
+  getLatestPortrait,
+  listPortraitVersions,
+  refreshPortrait,
+} from "./portrait.js";
 import {
   getAllocatorContext,
   refreshSelfModel,
@@ -30,11 +36,12 @@ export const CORTEX_RETRIEVAL_PLAYBOOK = `Cortex retrieval playbook (Personal Ex
 1. "What am I building / working on?" → list_recent_work first (defaults: sessions + github_* + email; calendar excluded; future events beyond +7d dropped). Then search_memory or search_records for keywords. Deep-dive with get_session.
 2. Schedule / meetings → get_calendar_range ONLY. Do not use list_recent_work for calendar — recurring future events dominate occurred_at sort.
 3. Keyword search → search_records searches payload text + distillate content. Defaults exclude calendar_event. Empty count with a hint is real emptiness, not sparse indexing.
-4. Semantic / insight questions → search_memory (distillates + hybrid vector when embeddings exist). Prefer distillate hits; use get_session for evidence.
-5. Email thread → get_email_thread with payload.threadId from an email_message hit.
-6. Project graph → list_entities / get_entity_links / seed_entities (ambitions & projects).
-7. Twin: capture_decision / list_decisions; priority_vs_actual; refresh_self_model; allocator_context for 3h/3w/3y leverage.
-8. Call cortex_help anytime for this playbook.`;
+4. Semantic / insight questions → search_memory (distillates + hybrid vector). Use mode=operational|reflective|both lenses.
+5. Cited synthesis / self-understanding → ask_mirror (ephemeral; requires evidence citations). Do not treat hypotheses as facts.
+6. Email thread → get_email_thread with payload.threadId from an email_message hit.
+7. Project/topic graph → list_entities / get_entity_links / seed_entities.
+8. Twin: capture_decision / list_decisions; priority_vs_actual; refresh_self_model / get_portrait; allocator_context.
+9. Call cortex_help anytime for this playbook.`;
 
 /** Register Cortex retrieval tools on a fresh McpServer instance. */
 export function registerCortexTools(
@@ -127,7 +134,7 @@ export function registerCortexTools(
     "search_memory",
     {
       description:
-        "Hybrid memory search: distillate summaries (keyword + vector when distillates.embedding is populated) merged with canonical keyword hits. WHEN TO USE: insight questions ('what am I building', 'clinic pilot', 'healthcare pipeline'). Prefer distillate hits; call get_session for full evidence. WHAT IT MISSES: raw calendar schedule. Empty hint means no distillates/embeddings yet — run distillate + embed-backfill.",
+        "Hybrid memory search: distillate summaries (keyword + vector when distillates.embedding is populated) merged with canonical keyword hits. Supports mode=operational|reflective|both plus domain/topic/sourceType lenses. Prefer distillate hits; call get_session or ask_mirror for synthesis.",
       inputSchema: {
         query: z.string().describe("Natural-language or keyword query"),
         limit: z
@@ -141,16 +148,40 @@ export function registerCortexTools(
           .array(z.string())
           .optional()
           .describe(
-            "Distillate kinds (summary, project_brief, self_model, decision, outcome, priority_vs_actual, …)",
+            "Distillate kinds (summary, youtube_interest_digest, project_brief, portrait, …)",
           ),
+        mode: z
+          .enum(["operational", "reflective", "both"])
+          .optional()
+          .describe("Retrieval lens (default both)"),
+        domains: z.array(z.string()).optional(),
+        topics: z.array(z.string()).optional(),
+        sourceTypes: z.array(z.string()).optional(),
+        minConfidence: z.number().optional(),
         since: z.string().optional(),
         until: z.string().optional(),
       },
     },
-    async ({ query, limit, kinds, since, until }) => {
+    async ({
+      query,
+      limit,
+      kinds,
+      mode,
+      domains,
+      topics,
+      sourceTypes,
+      minConfidence,
+      since,
+      until,
+    }) => {
       const result = await store.searchMemory(query, {
         limit: limit ?? 15,
         kinds,
+        mode,
+        domains,
+        topics,
+        sourceTypes,
+        minConfidence,
         since,
         until,
       });
@@ -664,6 +695,69 @@ export function registerCortexTools(
     async () => {
       const ctx = await getAllocatorContext(store);
       return textResult({ mode: store.mode, ...ctx });
+    },
+  );
+
+  server.registerTool(
+    "ask_mirror",
+    {
+      description:
+        "Citation-required query-time Analyst synthesis over lensed memories + connection candidates. Ephemeral (not persisted). Use for operational recall and reflective self-understanding. Hypotheses must not be treated as facts; insufficient evidence is a valid answer.",
+      inputSchema: {
+        query: z.string(),
+        mode: z.enum(["operational", "reflective", "both"]).optional(),
+        limit: z.number().int().min(1).max(40).optional(),
+      },
+    },
+    async ({ query, mode, limit }) => {
+      const result = await askMirror(store, { query, mode, limit });
+      return textResult({ ...result, vaultMode: store.mode });
+    },
+  );
+
+  server.registerTool(
+    "get_portrait",
+    {
+      description:
+        "Return the latest versioned portrait snapshot (kind=portrait), if any. Sensitive reflective content — use deliberately.",
+      inputSchema: {},
+    },
+    async () => {
+      const portrait = await getLatestPortrait(store);
+      return textResult({ mode: store.mode, portrait });
+    },
+  );
+
+  server.registerTool(
+    "list_portrait_versions",
+    {
+      description: "List recent versioned portrait distillates (newest first).",
+      inputSchema: {
+        limit: z.number().int().min(1).max(30).optional(),
+      },
+    },
+    async ({ limit }) => {
+      const versions = await listPortraitVersions(store, limit ?? 10);
+      return textResult({
+        mode: store.mode,
+        count: versions.length,
+        versions,
+      });
+    },
+  );
+
+  server.registerTool(
+    "refresh_portrait",
+    {
+      description:
+        "Create a new versioned portrait snapshot from session + interest evidence. Does not overwrite prior versions.",
+      inputSchema: {
+        dryRun: z.boolean().optional(),
+      },
+    },
+    async ({ dryRun }) => {
+      const result = await refreshPortrait(store, { dryRun });
+      return textResult(result);
     },
   );
 }

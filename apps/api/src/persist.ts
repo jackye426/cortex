@@ -72,6 +72,41 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Postgres jsonb rejects \\u0000 and PostgREST rejects lone UTF-16 surrogates.
+ * Strip both so vault writes never fail on otherwise-valid chat text.
+ */
+export function sanitizeJsonbValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    let out = "";
+    for (let i = 0; i < value.length; i++) {
+      const c = value.charCodeAt(i);
+      if (c === 0) continue;
+      if (c >= 0xd800 && c <= 0xdbff) {
+        const next = value.charCodeAt(i + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          out += value[i]! + value[i + 1]!;
+          i += 1;
+        }
+        // drop lone high surrogate
+        continue;
+      }
+      if (c >= 0xdc00 && c <= 0xdfff) continue; // lone low surrogate
+      out += value[i]!;
+    }
+    return out;
+  }
+  if (Array.isArray(value)) return value.map(sanitizeJsonbValue);
+  if (isRecord(value)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = sanitizeJsonbValue(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 function asIso(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const t = Date.parse(value);
@@ -141,7 +176,7 @@ async function upsertRawArtifact(
   const uploaded = await uploadRawBlob(client, objectPath, bytes, mimeType);
 
   const provenance: Record<string, unknown> = {
-    ...input.provenance,
+    ...(sanitizeJsonbValue(input.provenance) as Record<string, unknown>),
     contentHash: input.contentHash,
   };
   if (uploaded.mode === "inline") {
@@ -151,9 +186,11 @@ async function upsertRawArtifact(
     provenance.storageError = true;
     if (bytes.byteLength <= maxInline) {
       try {
-        provenance.body = JSON.parse(serialized) as unknown;
+        provenance.body = sanitizeJsonbValue(JSON.parse(serialized) as unknown);
       } catch {
-        provenance.bodyText = serialized.slice(0, maxInline);
+        provenance.bodyText = String(
+          sanitizeJsonbValue(serialized.slice(0, maxInline)),
+        );
       }
     } else {
       provenance.bodyOmitted = true;
@@ -219,7 +256,7 @@ async function upsertRecord(
     source_id: input.source,
     source_record_id: input.sourceRecordId,
     record_type: input.record.recordType,
-    payload: input.record.payload,
+    payload: sanitizeJsonbValue(input.record.payload) as Record<string, unknown>,
     content_hash: input.contentHash,
     raw_artifact_id: rawArtifactId,
     occurred_at: occurredAt,

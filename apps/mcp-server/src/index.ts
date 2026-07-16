@@ -28,7 +28,12 @@ import {
 } from "./project-brief.js";
 import { createStore } from "./store/index.js";
 import { registerCortexTools } from "./tools.js";
+import { askMirror } from "./analyst.js";
+import { runYoutubeInterestDigest } from "./youtube-digest.js";
+import { refreshPortrait } from "./portrait.js";
+import { runSourceAdapter, SOURCE_ADAPTERS } from "./source-adapters.js";
 import { runTwinPipeline } from "./twin-pipeline.js";
+import { MEMORY_EVAL_QUESTIONS } from "./eval/baseline.js";
 loadDotEnv();
 
 const store = createStore();
@@ -50,7 +55,7 @@ function createServer(): McpServer {
       version: "0.0.0",
     },
     {
-      instructions: `Cortex retrieval playbook: list_recent_work for what you're building (sessions/github/email; calendar excluded); get_calendar_range for schedule; search_records for payload+distillate keywords; search_memory for semantic/insight; get_session for deep evidence; cortex_help for full playbook.`,
+      instructions: `Cortex retrieval playbook: list_recent_work for what you're building (sessions/github/email; calendar excluded); get_calendar_range for schedule; search_records for payload+distillate keywords; search_memory for semantic/insight with mode=operational|reflective|both; ask_mirror for cited synthesis; get_session for deep evidence; cortex_help for full playbook.`,
     },
   );
   registerCortexTools(server, store);
@@ -281,6 +286,14 @@ app.post("/v1/twin", async (c) => {
     const row = await refreshSelfModel(store, { dryRun });
     return c.json({ ok: true, job, distillate: row });
   }
+  if (job === "portrait") {
+    const result = await refreshPortrait(store, { dryRun });
+    return c.json({ ok: true, job, ...result });
+  }
+  if (job === "youtube-digest") {
+    const result = await runYoutubeInterestDigest(store, { dryRun, limitRecords: limit });
+    return c.json({ ok: true, job, ...result });
+  }
   return c.json(
     {
       error: "unknown job",
@@ -289,10 +302,191 @@ app.post("/v1/twin", async (c) => {
         "priority-vs-actual",
         "project-brief",
         "self-model",
+        "portrait",
+        "youtube-digest",
       ],
     },
     400,
   );
+});
+
+/** Citation-required Analyst synthesis (ephemeral). */
+app.post("/v1/ask-mirror", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      {
+        error:
+          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+      },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let query = "";
+  let mode: "operational" | "reflective" | "both" | undefined;
+  let limit = 12;
+  try {
+    const body = (await c.req.json()) as {
+      query?: string;
+      mode?: "operational" | "reflective" | "both";
+      limit?: number;
+    };
+    query = typeof body.query === "string" ? body.query : "";
+    mode = body.mode;
+    if (typeof body.limit === "number" && body.limit > 0) {
+      limit = Math.floor(body.limit);
+    }
+  } catch {
+    return c.json({ error: "invalid json body" }, 400);
+  }
+  if (!query.trim()) {
+    return c.json({ error: "query required" }, 400);
+  }
+
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/ask-mirror",
+    method: "POST",
+    metadata: { mode, limit, queryLen: query.length },
+  });
+
+  const result = await askMirror(store, { query, mode, limit });
+  return c.json({ ok: true, ...result });
+});
+
+/** Run a post-quality-gate source adapter by id. */
+app.post("/v1/source-adapter", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      {
+        error:
+          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+      },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let adapter = "";
+  let dryRun = false;
+  let limit = 40;
+  try {
+    const body = (await c.req.json()) as {
+      adapter?: string;
+      dryRun?: boolean;
+      limit?: number;
+    };
+    adapter = typeof body.adapter === "string" ? body.adapter : "";
+    dryRun = Boolean(body.dryRun);
+    if (typeof body.limit === "number" && body.limit > 0) {
+      limit = Math.floor(body.limit);
+    }
+  } catch {
+    return c.json({ error: "invalid json body" }, 400);
+  }
+  if (!adapter) {
+    return c.json(
+      {
+        error: "adapter required",
+        adapters: SOURCE_ADAPTERS.map((a) => a.id),
+      },
+      400,
+    );
+  }
+
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/source-adapter",
+    method: "POST",
+    metadata: { adapter, dryRun, limit },
+  });
+
+  try {
+    const result = await runSourceAdapter(store, adapter, { dryRun, limit });
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return c.json(
+      {
+        error: err instanceof Error ? err.message : String(err),
+        adapters: SOURCE_ADAPTERS.map((a) => a.id),
+      },
+      400,
+    );
+  }
+});
+
+/** Quality-gate harness: run baseline questions through ask_mirror (fixture/live). */
+app.post("/v1/quality-gate", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      {
+        error:
+          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+      },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let limitQuestions: number = MEMORY_EVAL_QUESTIONS.length;
+  try {
+    const body = (await c.req.json()) as { limit?: number };
+    if (typeof body.limit === "number" && body.limit > 0) {
+      limitQuestions = Math.floor(body.limit);
+    }
+  } catch {
+    // empty ok
+  }
+
+  const results = [];
+  for (const q of MEMORY_EVAL_QUESTIONS.slice(0, limitQuestions)) {
+    const answer = await askMirror(store, {
+      query: q.question,
+      mode: q.mode,
+      limit: 10,
+    });
+    const hasEvidence = answer.evidence.length > 0;
+    const unsupported = answer.claims.filter(
+      (cl) =>
+        cl.claimType !== "hypothesis" &&
+        cl.evidenceRefs.some((id) => !answer.evidence.some((e) => e.id === id)),
+    );
+    results.push({
+      id: q.id,
+      question: q.question,
+      expectsEvidence: q.expectsEvidence,
+      hasEvidence,
+      pass:
+        q.expectsEvidence === false
+          ? answer.confidence < 0.45 ||
+            /insufficient/i.test(answer.answer) ||
+            answer.gaps.length > 0
+          : hasEvidence && unsupported.length === 0,
+      confidence: answer.confidence,
+      claimCount: answer.claims.length,
+      evidenceCount: answer.evidence.length,
+      gaps: answer.gaps,
+    });
+  }
+
+  const passed = results.filter((r) => r.pass).length;
+  return c.json({
+    ok: true,
+    store: store.mode,
+    passed,
+    total: results.length,
+    results,
+  });
 });
 
 /** Nightly / weekly / backfill twin pipeline (cron target). */

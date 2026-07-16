@@ -11,6 +11,13 @@ import {
   textMatchesQuery,
   withinHorizon,
 } from "./search-helpers.js";
+import { distillateMatchesLenses, kindsForMode } from "./memory-lenses.js";
+import {
+  DEFAULT_SAMPLE_STRATEGY,
+  sampleSessionTurns,
+  turnsToExcerpts,
+  type SampleTurn,
+} from "../session-sampler.js";
 import {
   calendarFromRecords,
   emailThreadFromRecords,
@@ -781,27 +788,33 @@ export class SupabaseStore implements CortexStore {
       const [{ data: messages }, { data: tools }] = await Promise.all([
         this.client
           .from("messages")
-          .select("content, role")
+          .select("id, content, role, created_at")
           .eq("session_id", id)
           .order("created_at", { ascending: true })
-          .limit(40),
+          .limit(500),
         this.client
           .from("tool_calls")
           .select("tool_name, args_summary")
           .eq("session_id", id)
           .order("created_at", { ascending: true })
-          .limit(30),
+          .limit(80),
       ]);
-      const excerpts = (messages ?? [])
-        .map((m) => {
-          const mr = m as Record<string, unknown>;
-          const content =
-            typeof mr.content === "string" ? mr.content.trim() : "";
-          if (!content) return null;
-          const role = typeof mr.role === "string" ? mr.role : "msg";
-          return `${role}: ${content.slice(0, 500)}`;
-        })
-        .filter((x): x is string => Boolean(x));
+
+      const rawTurns: SampleTurn[] = (messages ?? []).map((m, i) => {
+        const mr = m as Record<string, unknown>;
+        const content =
+          typeof mr.content === "string" ? mr.content.trim() : "";
+        const role = typeof mr.role === "string" ? mr.role : "msg";
+        return {
+          index: i,
+          role,
+          content,
+          messageId: typeof mr.id === "string" ? mr.id : undefined,
+          toolHeavy: role === "tool",
+        };
+      }).filter((t) => t.content.length > 0);
+
+      // Mark tool-adjacent assistant turns using tool call args as hints
       const toolSummaries = (tools ?? [])
         .map((t) => {
           const tr = t as Record<string, unknown>;
@@ -813,6 +826,25 @@ export class SupabaseStore implements CortexStore {
         })
         .filter(Boolean);
 
+      for (const t of rawTurns) {
+        if (
+          /\b(Write|Shell|Edit|ApplyPatch|Grep|Read|Bash)\b/.test(t.content) ||
+          toolSummaries.some((ts) => t.content.includes(ts.slice(0, 24)))
+        ) {
+          t.toolHeavy = true;
+        }
+      }
+
+      const sampled = sampleSessionTurns(rawTurns, DEFAULT_SAMPLE_STRATEGY);
+      const excerpts = turnsToExcerpts(sampled.turns);
+      const meta = asRecord(s.metadata);
+      const pathsTouched = Array.isArray(meta.pathsTouched)
+        ? meta.pathsTouched.filter((x): x is string => typeof x === "string")
+        : [];
+      const commands = Array.isArray(meta.commands)
+        ? meta.commands.filter((x): x is string => typeof x === "string")
+        : [];
+
       envelopes.push({
         sourceId: String(s.source_id),
         sourceSessionId: String(s.source_session_id),
@@ -822,7 +854,16 @@ export class SupabaseStore implements CortexStore {
         endedAt: typeof s.ended_at === "string" ? s.ended_at : null,
         excerpts,
         toolSummaries,
-        metadata: { ...asRecord(s.metadata), sessionId: id },
+        sampledTurns: sampled.turns,
+        sampleStrategy: sampled.sampleStrategy,
+        turnCount: sampled.totalTurnCount,
+        pathsTouched,
+        commands,
+        metadata: {
+          ...meta,
+          sessionId: id,
+          metadataOnly: sampled.metadataOnly,
+        },
       });
     }
     return envelopes;
@@ -889,13 +930,22 @@ export class SupabaseStore implements CortexStore {
     const trimmed = query.trim();
     const hits: MemorySearchHit[] = [];
     const queryEmbedding = await this.tryEmbedQuery(trimmed);
+    const effectiveKinds =
+      options.kinds?.length ? options.kinds : kindsForMode(options.mode);
 
     // Prefer RPC hybrid when available (pass query embedding for vector path)
     const rpcArgs: Record<string, unknown> = {
       p_owner_id: this.ownerId ?? null,
       p_query: trimmed,
-      p_limit: Math.min(capped * 2, 50),
-      p_kinds: options.kinds?.length ? options.kinds : null,
+      p_limit: Math.min(capped * 3, 80),
+      p_kinds: effectiveKinds?.length ? effectiveKinds : null,
+      p_domains: options.domains?.length ? options.domains : null,
+      p_topics: options.topics?.length ? options.topics : null,
+      p_source_types: options.sourceTypes?.length ? options.sourceTypes : null,
+      p_min_confidence:
+        typeof options.minConfidence === "number"
+          ? options.minConfidence
+          : null,
     };
     if (queryEmbedding?.length) {
       rpcArgs.p_query_embedding = `[${queryEmbedding.join(",")}]`;
@@ -944,10 +994,10 @@ export class SupabaseStore implements CortexStore {
       }
       // Local hybrid: keyword distillates + records; vector re-rank when embeddings exist
       const distillates = trimmed
-        ? await this.searchDistillates(trimmed, capped * 2, options.kinds)
+        ? await this.searchDistillates(trimmed, capped * 3, effectiveKinds)
         : await this.listDistillates({
-            limit: capped * 2,
-            kinds: options.kinds,
+            limit: capped * 3,
+            kinds: effectiveKinds,
           });
       const records = trimmed
         ? await this.searchRecords(trimmed, {
@@ -958,6 +1008,7 @@ export class SupabaseStore implements CortexStore {
         : { hits: [] as import("./types.js").RecordHit[], distillates: [] };
 
       for (const d of distillates) {
+        if (!distillateMatchesLenses(d, options)) continue;
         let score = trimmed
           ? textMatchesQuery(d.content, trimmed) ||
             textMatchesQuery(JSON.stringify(d.metadata), trimmed)
@@ -999,36 +1050,39 @@ export class SupabaseStore implements CortexStore {
       }
     }
 
-    // Client-side since/until for distillate hits when subject is session:
-    // filter records by searching record occurred_at via id map is expensive;
-    // apply only when we have record hits from keyword path above.
-    // For RPC path, re-fetch record timestamps if filters set.
+    // Post-filter RPC hits with metadata lenses when possible
     let filtered = hits;
-    if (options.since || options.until) {
-      const recordIds = hits
-        .filter((h) => h.kind === "record")
-        .map((h) => h.id);
-      const occurred = new Map<string, string | null>();
-      if (recordIds.length) {
-        const { data } = await this.client
-          .from("records")
-          .select("id, occurred_at")
-          .in("id", recordIds.slice(0, 100));
-        for (const row of data ?? []) {
-          const r = row as Record<string, unknown>;
-          occurred.set(
-            String(r.id),
-            typeof r.occurred_at === "string" ? r.occurred_at : null,
-          );
-        }
-      }
+    if (
+      options.domains?.length ||
+      options.topics?.length ||
+      options.sourceTypes?.length ||
+      typeof options.minConfidence === "number" ||
+      options.mode
+    ) {
+      const distillateMeta = await this.listDistillates({
+        limit: 100,
+        kinds: effectiveKinds,
+      });
+      const byId = new Map(distillateMeta.map((d) => [d.id, d]));
       filtered = hits.filter((h) => {
-        if (h.kind !== "record") return true;
-        const at = occurred.get(h.id);
-        if (!at) return true;
-        if (options.since && at < options.since) return false;
-        if (options.until && at > options.until) return false;
-        return true;
+        if (h.kind !== "distillate") {
+          // operational mode drops interest keyword records unless both
+          if (options.mode === "operational" && h.recordType?.startsWith("youtube_")) {
+            return false;
+          }
+          if (options.mode === "reflective" && h.recordType?.startsWith("github_")) {
+            return false;
+          }
+          return true;
+        }
+        const d = byId.get(h.id);
+        if (!d) {
+          if (effectiveKinds?.length && h.distillateKind) {
+            return effectiveKinds.includes(h.distillateKind);
+          }
+          return true;
+        }
+        return distillateMatchesLenses(d, options);
       });
     }
 

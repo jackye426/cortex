@@ -95,6 +95,14 @@ export interface DistillateRow {
   embedding?: number[] | null;
 }
 
+export interface SampledTurnInput {
+  index: number;
+  role: string;
+  content: string;
+  toolHeavy?: boolean;
+  messageId?: string;
+}
+
 export interface SessionEnvelopeInput {
   sourceId: string;
   sourceSessionId: string;
@@ -106,6 +114,12 @@ export interface SessionEnvelopeInput {
   excerpts?: string[];
   /** Tool name summaries for distillate context. */
   toolSummaries?: string[];
+  /** Stratified sampled turns (first/mid/last/tool-heavy). */
+  sampledTurns?: SampledTurnInput[];
+  sampleStrategy?: import("../session-sampler.js").SampleStrategy | Record<string, unknown>;
+  turnCount?: number;
+  pathsTouched?: string[];
+  commands?: string[];
   metadata?: Record<string, unknown>;
 }
 
@@ -148,11 +162,19 @@ export interface ListRecentWorkOptions {
   workMode?: boolean;
 }
 
+export type MemorySearchMode = "operational" | "reflective" | "both";
+
 export interface MemorySearchOptions {
   limit?: number;
   kinds?: string[];
   since?: string;
   until?: string;
+  /** operational | reflective | both — filters distillate kinds via lenses. */
+  mode?: MemorySearchMode;
+  domains?: string[];
+  topics?: string[];
+  sourceTypes?: string[];
+  minConfidence?: number;
 }
 
 export interface MemorySearchHit {

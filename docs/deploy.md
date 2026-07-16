@@ -40,7 +40,9 @@ Local Windows after deploy:
 
 Build note: API/MCP `build` scripts compile workspace deps (`pnpm --filter …^...`) before `tsc`.
 
-**MCP also needs for distillates:** `OPENAI_API_KEY`, `OPENAI_BASE_URL` (OpenRouter), optional `CORTEX_DISTILLATE_MODEL`, `CORTEX_EMBEDDING_MODEL`.
+**MCP also needs for distillates:** `OPENAI_API_KEY`, `OPENAI_BASE_URL` (OpenRouter), optional `CORTEX_DISTILLATE_MODEL`, `CORTEX_EMBEDDING_MODEL`, `CORTEX_ANALYST_MODEL`.
+
+Also apply migration `20260713120000_memory_lenses_search.sql` for lens-aware `cortex_search_memory`.
 
 ### Twin pipeline cron (Railway or external)
 

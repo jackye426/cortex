@@ -13,6 +13,18 @@ Paths below were probed on Jack’s Windows machine (2026-07-11). Counts only �
 
 Idempotency for all sources: unique `(source, source_record_id)` on `records`.
 
+## Distillate / embedding coverage (Unified Memory Substrate)
+
+Canonical records are always searchable by keyword. Semantic cross-source comparison requires **embedded distillates** in `distillates.embedding`.
+
+| Source | Distillate in v1? | Grain | Notes |
+|--------|-------------------|-------|-------|
+| AI sessions | Yes (`kind=summary`) | Per session | Stratified sampling; topics + evidenced behaviors |
+| YouTube | Yes (`youtube_interest_digest`) | Weekly topic cluster | Watching ≠ identity; recurring > one-off |
+| Email / Calendar / GitHub / Spotify / Drive / Browser | Keyword only until enabled | See adapter CLI | `pnpm source-adapter -- --list` |
+
+Full design: [memory-substrate.md](memory-substrate.md).
+
 ---
 
 ## Calibre (Phase 2b — local)

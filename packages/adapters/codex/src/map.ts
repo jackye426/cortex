@@ -58,7 +58,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
-  return `${s.slice(0, max)}…`;
+  let end = max;
+  const code = s.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return `${s.slice(0, end)}…`;
 }
 
 function textFromContentBlocks(content: unknown): string {

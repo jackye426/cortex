@@ -4,11 +4,15 @@ import {
   embedTexts,
   openaiConfigured,
 } from "./llm.js";
+import { SESSION_COMPILER_VERSION } from "./eval/baseline.js";
+import { normalizeTopic } from "./store/memory-lenses.js";
 import type { CortexStore } from "./store/index.js";
 import type {
   DistillateRow,
+  SampledTurnInput,
   SessionEnvelopeInput,
 } from "./store/types.js";
+import { turnsToExcerpts } from "./session-sampler.js";
 
 export interface DistillateRunOptions {
   /** Max sessions to process (default 20). */
@@ -32,6 +36,12 @@ export interface DistillateRunResult {
   engine: "llm" | "stub";
 }
 
+export interface EvidencedSignal {
+  text: string;
+  evidenceIndices: number[];
+  confidence: number;
+}
+
 export interface StructuredDistillate {
   summary: string;
   projects: string[];
@@ -39,6 +49,12 @@ export interface StructuredDistillate {
   nextActions: string[];
   commercialVsTech: string;
   openQuestions: string[];
+  topics: string[];
+  explicitCommitments: string[];
+  decisions: string[];
+  explorationSignals: EvidencedSignal[];
+  demonstratedBehaviors: EvidencedSignal[];
+  frictionSignals: EvidencedSignal[];
 }
 
 const DISTILLATE_SYSTEM = `You distill an AI coding/work session into structured JSON for a personal executive twin.
@@ -49,7 +65,20 @@ Return ONLY a JSON object with keys:
 - nextActions (string array)
 - commercialVsTech (string: commercial | tech | mixed | unknown)
 - openQuestions (string array)
-Be faithful to the evidence; do not invent repos or projects not suggested by the text.`;
+- topics (string array of normalized themes)
+- explicitCommitments (string array of explicit user commitments)
+- decisions (string array of explicit decisions made)
+- explorationSignals (array of { text, evidenceIndices, confidence })
+- demonstratedBehaviors (array of { text, evidenceIndices, confidence })
+- frictionSignals (array of { text, evidenceIndices, confidence })
+
+Rules:
+- Be faithful to the evidence; do not invent repos or projects not suggested by the text.
+- evidenceIndices refer to the [#N] message indices in the prompt.
+- Describe observable behavior only — do NOT infer avoidance, motivation, emotional state, or stable personality.
+- Distinguish user behavior from assistant/tool behavior.
+- Return empty arrays when evidence is weak.
+- Messages are stratified samples (first/middle/last/tool-heavy), not the full transcript.`;
 
 /**
  * Heuristic fallback when no OpenAI-compatible key is configured.
@@ -93,7 +122,33 @@ function subjectIdFor(session: SessionEnvelopeInput): string {
   return `${session.sourceId}:${session.sourceSessionId}`;
 }
 
+/** Strip NUL + lone UTF-16 surrogates (break Morph/JSON upstream otherwise). */
+function sanitizeUtf16(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0) continue;
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += text[i]! + text[i + 1]!;
+        i += 1;
+      }
+      continue;
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) continue;
+    out += text[i]!;
+  }
+  return out;
+}
+
 function buildUserPrompt(session: SessionEnvelopeInput): string {
+  const sampled = session.sampledTurns ?? [];
+  const excerpts =
+    sampled.length > 0
+      ? turnsToExcerpts(sampled)
+      : (session.excerpts ?? []).slice(0, 30);
+
   const parts = [
     `source: ${session.sourceId}`,
     `sourceSessionId: ${session.sourceSessionId}`,
@@ -101,14 +156,42 @@ function buildUserPrompt(session: SessionEnvelopeInput): string {
     `workspace: ${session.workspace ?? ""}`,
     `startedAt: ${session.startedAt ?? ""}`,
     `endedAt: ${session.endedAt ?? ""}`,
+    `turnCount: ${session.turnCount ?? sampled.length ?? ""}`,
+    `sampleStrategy: ${JSON.stringify(session.sampleStrategy ?? null)}`,
+    `pathsTouched: ${(session.pathsTouched ?? []).slice(0, 30).join(", ")}`,
+    `commands: ${(session.commands ?? []).slice(0, 20).join(", ")}`,
     "",
-    "Messages / excerpts:",
-    ...(session.excerpts ?? []).slice(0, 30).map((e, i) => `${i + 1}. ${e}`),
+    "Messages / excerpts (indexed):",
+    ...excerpts.map((e, i) => `${i + 1}. ${e}`),
     "",
     "Tools:",
     ...(session.toolSummaries ?? []).slice(0, 25).map((t, i) => `${i + 1}. ${t}`),
   ];
-  return parts.join("\n").slice(0, 24000);
+  return sanitizeUtf16(parts.join("\n").slice(0, 24000));
+}
+
+function parseEvidencedSignals(v: unknown): EvidencedSignal[] {
+  if (!Array.isArray(v)) return [];
+  const out: EvidencedSignal[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const text = typeof row.text === "string" ? row.text.trim() : "";
+    if (!text) continue;
+    const evidenceIndices = Array.isArray(row.evidenceIndices)
+      ? row.evidenceIndices.filter((n): n is number => typeof n === "number")
+      : [];
+    const confidence =
+      typeof row.confidence === "number"
+        ? row.confidence
+        : Number(row.confidence ?? 0.5);
+    out.push({
+      text,
+      evidenceIndices,
+      confidence: Number.isFinite(confidence) ? confidence : 0.5,
+    });
+  }
+  return out;
 }
 
 function parseStructured(raw: string): StructuredDistillate {
@@ -123,6 +206,12 @@ function parseStructured(raw: string): StructuredDistillate {
       nextActions: [],
       commercialVsTech: "unknown",
       openQuestions: [],
+      topics: [],
+      explicitCommitments: [],
+      decisions: [],
+      explorationSignals: [],
+      demonstratedBehaviors: [],
+      frictionSignals: [],
     };
   }
   const asStringArray = (v: unknown): string[] =>
@@ -142,6 +231,12 @@ function parseStructured(raw: string): StructuredDistillate {
         ? parsed.commercialVsTech
         : "unknown",
     openQuestions: asStringArray(parsed.openQuestions),
+    topics: asStringArray(parsed.topics).map(normalizeTopic).filter(Boolean),
+    explicitCommitments: asStringArray(parsed.explicitCommitments),
+    decisions: asStringArray(parsed.decisions),
+    explorationSignals: parseEvidencedSignals(parsed.explorationSignals),
+    demonstratedBehaviors: parseEvidencedSignals(parsed.demonstratedBehaviors),
+    frictionSignals: parseEvidencedSignals(parsed.frictionSignals),
   };
 }
 
@@ -155,6 +250,13 @@ export async function distillSession(
   engine: "llm" | "stub";
 }> {
   const useLlm = openaiConfigured() && !options.stubOnly;
+  const sampleMeta = {
+    sampleStrategy: session.sampleStrategy ?? null,
+    turnCount: session.turnCount ?? session.sampledTurns?.length ?? null,
+    sampledIndices: (session.sampledTurns ?? []).map((t) => t.index),
+    metadataOnly: Boolean(session.metadata?.metadataOnly),
+  };
+
   if (!useLlm) {
     const content = summarizeSessionEnvelope(session);
     return {
@@ -162,39 +264,102 @@ export async function distillSession(
       metadata: {
         sourceId: session.sourceId,
         sourceSessionId: session.sourceSessionId,
+        sourceType: session.sourceId,
+        domains: ["work"],
+        domain: "work",
         stub: true,
         projects: [],
         repos: [],
         nextActions: [],
         commercialVsTech: "unknown",
         openQuestions: [],
+        topics: [],
+        explicitCommitments: [],
+        decisions: [],
+        explorationSignals: [],
+        demonstratedBehaviors: [],
+        frictionSignals: [],
+        compilerVersion: SESSION_COMPILER_VERSION,
+        confidence: 0.4,
+        ...sampleMeta,
       },
       model: options.model ?? "cortex-distillate-stub",
       engine: "stub",
     };
   }
 
-  const { text, model } = await chatJsonCompletion({
-    system: DISTILLATE_SYSTEM,
-    user: buildUserPrompt(session),
-    model: options.model ?? distillateModel(),
-  });
-  const structured = parseStructured(text);
-  return {
-    content: structured.summary,
-    metadata: {
-      sourceId: session.sourceId,
-      sourceSessionId: session.sourceSessionId,
-      stub: false,
-      projects: structured.projects,
-      repos: structured.repos,
-      nextActions: structured.nextActions,
-      commercialVsTech: structured.commercialVsTech,
-      openQuestions: structured.openQuestions,
-    },
-    model,
-    engine: "llm",
-  };
+  try {
+    const { text, model } = await chatJsonCompletion({
+      system: DISTILLATE_SYSTEM,
+      user: buildUserPrompt(session),
+      model: options.model ?? distillateModel(),
+    });
+    const structured = parseStructured(text);
+    const embedTopics = structured.topics.slice(0, 8);
+
+    return {
+      content: structured.summary,
+      metadata: {
+        sourceId: session.sourceId,
+        sourceSessionId: session.sourceSessionId,
+        sourceType: session.sourceId,
+        domains: ["work"],
+        domain: "work",
+        stub: false,
+        projects: structured.projects,
+        repos: structured.repos,
+        nextActions: structured.nextActions,
+        commercialVsTech: structured.commercialVsTech,
+        openQuestions: structured.openQuestions,
+        topics: structured.topics,
+        explicitCommitments: structured.explicitCommitments,
+        decisions: structured.decisions,
+        explorationSignals: structured.explorationSignals,
+        demonstratedBehaviors: structured.demonstratedBehaviors,
+        frictionSignals: structured.frictionSignals,
+        compilerVersion: SESSION_COMPILER_VERSION,
+        confidence: 0.75,
+        embedAugment: embedTopics,
+        ...sampleMeta,
+      },
+      model,
+      engine: "llm",
+    };
+  } catch (err) {
+    console.warn(
+      `[distillate] LLM failed for ${session.sourceId}:${session.sourceSessionId}; using stub:`,
+      err instanceof Error ? err.message : err,
+    );
+    const content = summarizeSessionEnvelope(session);
+    return {
+      content,
+      metadata: {
+        sourceId: session.sourceId,
+        sourceSessionId: session.sourceSessionId,
+        sourceType: session.sourceId,
+        domains: ["work"],
+        domain: "work",
+        stub: true,
+        llmError: true,
+        projects: [],
+        repos: [],
+        nextActions: [],
+        commercialVsTech: "unknown",
+        openQuestions: [],
+        topics: [],
+        explicitCommitments: [],
+        decisions: [],
+        explorationSignals: [],
+        demonstratedBehaviors: [],
+        frictionSignals: [],
+        compilerVersion: SESSION_COMPILER_VERSION,
+        confidence: 0.35,
+        ...sampleMeta,
+      },
+      model: options.model ?? "cortex-distillate-stub",
+      engine: "stub",
+    };
+  }
 }
 
 async function maybeEmbed(
@@ -239,9 +404,15 @@ export async function runDistillateWorker(
       model: options.model,
       stubOnly: options.stubOnly,
     });
+    const embedSource = [
+      distilled.content,
+      ...((distilled.metadata.embedAugment as string[] | undefined) ?? []).map(
+        (t) => `topic:${t}`,
+      ),
+    ].join("\n");
     const { embedding, embeddingRef } = dryRun
       ? { embedding: null, embeddingRef: null }
-      : await maybeEmbed(distilled.content);
+      : await maybeEmbed(embedSource);
 
     const draft = {
       subjectType: "session",
@@ -268,6 +439,25 @@ export async function runDistillateWorker(
     const row = await store.upsertDistillate(draft);
     distillates.push(row);
     written += 1;
+
+    // Topic hubs from session distillate
+    const topics = Array.isArray(row.metadata.topics)
+      ? row.metadata.topics.filter((x): x is string => typeof x === "string")
+      : [];
+    for (const topic of topics.slice(0, 8)) {
+      const entity = await store.upsertEntity({
+        entityType: "topic",
+        canonicalKey: topic,
+        displayName: topic.replace(/-/g, " "),
+        metadata: { twin: "session", source: session.sourceId },
+      });
+      await store.linkEntity({
+        entityId: entity.id,
+        linkedType: "session",
+        linkedId: subjectIdFor(session),
+        relation: "mentions",
+      });
+    }
   }
 
   return {
@@ -279,3 +469,5 @@ export async function runDistillateWorker(
     engine,
   };
 }
+
+export type { SampledTurnInput };

@@ -2,7 +2,7 @@
 
 Two capture paths: **historical** official export ZIP, and **ongoing** MV3 browser extension. Neither scrapes OpenAI `backend-api` cookies.
 
-**Status:** adapters + extension are implemented; historical ingest waits on your OpenAI export email (`conversations.json`). Run the commands below when the ZIP is ready.
+**Status:** historical export ingest works (single `conversations.json` or sharded `conversations-NNN.json`). Ongoing capture via MV3 extension.
 
 ## 1. Historical — official export
 
@@ -10,7 +10,7 @@ Two capture paths: **historical** official export ZIP, and **ongoing** MV3 brows
 
 1. Open [ChatGPT Settings → Data controls](https://chatgpt.com/#settings) (or **Settings → Data controls**).
 2. Choose **Export data** and confirm.
-3. When the email arrives, download the ZIP (contains `conversations.json` and related files).
+3. When the email arrives, download the ZIP (contains `conversations.json` or sharded `conversations-NNN.json`, plus related files).
 
 ### Ingest with Cortex backfill
 
@@ -34,7 +34,7 @@ pnpm backfill -- --source=chatgpt-export --path=D:\Downloads\chatgpt-export.zip 
 ### Parser notes
 
 - Adapter: `@cortex/adapter-chatgpt-export`
-- Reads `conversations.json` from ZIP, folder, or file path
+- Reads `conversations.json` and/or sharded `conversations-NNN.json` from ZIP, folder, or file path
 - Reconstructs the **active branch** by walking `current_node` → `parent` (DAG); edited/regenerated siblings are ignored
 - Envelope `source`: `chatgpt-export`; `sourceRecordId`: conversation id
 - Canonical stub: `session` via `normalizeChatgptConversation`

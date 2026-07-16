@@ -49,7 +49,11 @@ export interface ChatgptEnvelopeBody {
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
-  return `${s.slice(0, max)}…`;
+  let end = max;
+  // Avoid splitting a UTF-16 surrogate pair (orphans break PostgREST/Postgres jsonb).
+  const code = s.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return `${s.slice(0, end)}…`;
 }
 
 function toRole(role: string): ChatgptTurnSummary["role"] {

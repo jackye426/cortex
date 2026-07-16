@@ -11,7 +11,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "distillate": "tsx src/distillate-cli.ts",
     "embed-backfill": "tsx src/embed-backfill-cli.ts",
-    "twin-pipeline": "tsx src/twin-pipeline-cli.ts"
+    "twin-pipeline": "tsx src/twin-pipeline-cli.ts",
+    "youtube-digest": "tsx src/youtube-digest-cli.ts",
+    "source-adapter": "tsx src/source-adapter-cli.ts",
+    "quality-gate": "tsx src/quality-gate-cli.ts",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@cortex/core": "workspace:*",
