@@ -1702,12 +1702,21 @@ export const WEEKLY_ADAPTER_IDS = [
 
 /**
  * Parse CORTEX_SOURCE_ADAPTERS enablement list.
- * Default: email-thread only (others join after acceptance).
- * Set to "none" / empty after trim of "none" to disable all.
+ * Default: accepted post-gate adapters (email → github → calendar → drive →
+ * browser → spotify). Override with env; set "none" to disable all.
  */
 export function enabledSourceAdapters(): string[] {
   const raw = process.env.CORTEX_SOURCE_ADAPTERS;
-  if (raw === undefined) return ["email-thread"];
+  if (raw === undefined) {
+    return [
+      "email-thread",
+      "github-outcome",
+      "calendar-event",
+      "drive-file",
+      "browser-interest",
+      "spotify-interest",
+    ];
+  }
   const trimmed = raw.trim();
   if (!trimmed || trimmed.toLowerCase() === "none") return [];
   return trimmed

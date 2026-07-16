@@ -137,7 +137,7 @@ pnpm distillate -- --dry-run --limit=5
 
 Client snippets + retrieval playbook: [docs/mcp.md](docs/mcp.md). Twin path: [docs/twin.md](docs/twin.md).
 
-**Railway env (MCP service):** `CORTEX_MCP_TOKEN` (or ingest token), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORTEX_OWNER_ID` (optional), `OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `CORTEX_DISTILLATE_MODEL`, `CORTEX_EMBEDDING_MODEL`, optional `CORTEX_SOURCE_ADAPTERS` (default `email-thread`; see [docs/source-adapters.md](docs/source-adapters.md)).
+**Railway env (MCP service):** `CORTEX_MCP_TOKEN` (or ingest token), `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORTEX_OWNER_ID` (optional), `OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `CORTEX_DISTILLATE_MODEL`, `CORTEX_EMBEDDING_MODEL`, optional `CORTEX_SOURCE_ADAPTERS` (defaults to accepted post-gate set; see [docs/source-adapters.md](docs/source-adapters.md)).
 
 ### Ingest smoke test
 
