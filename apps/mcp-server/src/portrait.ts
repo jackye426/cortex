@@ -180,7 +180,10 @@ Rules: every non-empty list item must be grounded; prefer recurring multi-window
       compilerVersion: PORTRAIT_COMPILER_VERSION,
       version: versionKey,
       supersedesId: latest?.id ?? null,
-      sensitivity: "private",
+      /** Stronger than ordinary distillates — see mirror-privilege-plan. */
+      sensitivity: "reflective_sensitive",
+      evidenceClasses: ["distillate"],
+      excludesBrokerExcerpts: true,
       ...structured,
       twin: "portrait",
     },

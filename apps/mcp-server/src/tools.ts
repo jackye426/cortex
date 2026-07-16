@@ -2,11 +2,21 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { askMirror } from "./analyst.js";
+import { logMcpAudit } from "./audit.js";
+import {
+  capabilityPublicView,
+  mintCapability,
+  retrieveSupportingEvidence,
+} from "./evidence-broker.js";
 import {
   embedTexts,
   embeddingModel,
   openaiConfigured,
 } from "./llm.js";
+import {
+  type McpToolProfile,
+  playbookForProfile,
+} from "./mcp-profile.js";
 import {
   getLatestPortrait,
   listPortraitVersions,
@@ -18,6 +28,7 @@ import {
   runPriorityVsActual,
   seedEntitiesFromDistillates,
 } from "./project-brief.js";
+import { sanitiseCalendarEvents } from "./sanitised-calendar.js";
 import type { CortexStore } from "./store/index.js";
 
 function textResult(data: unknown) {
@@ -31,110 +42,121 @@ function textResult(data: unknown) {
   };
 }
 
-export const CORTEX_RETRIEVAL_PLAYBOOK = `Cortex retrieval playbook (Personal Executive Twin memory):
+/** @deprecated Use playbookForProfile("mirror" | "ops") */
+export const CORTEX_RETRIEVAL_PLAYBOOK = playbookForProfile("mirror");
 
-1. "What am I building / working on?" → list_recent_work first (defaults: sessions + github_* + email; calendar excluded; future events beyond +7d dropped). Then search_memory or search_records for keywords. Deep-dive with get_session.
-2. Schedule / meetings → get_calendar_range ONLY. Do not use list_recent_work for calendar — recurring future events dominate occurred_at sort.
-3. Keyword search → search_records searches payload text + distillate content. Defaults exclude calendar_event. Empty count with a hint is real emptiness, not sparse indexing.
-4. Semantic / insight questions → search_memory (distillates + hybrid vector). Use mode=operational|reflective|both lenses.
-5. Cited synthesis / self-understanding → ask_mirror (ephemeral; requires evidence citations). Do not treat hypotheses as facts.
-6. Email thread → get_email_thread with payload.threadId from an email_message hit.
-7. Project/topic graph → list_entities / get_entity_links / seed_entities.
-8. Twin: capture_decision / list_decisions; priority_vs_actual; refresh_self_model / get_portrait; allocator_context.
-9. Call cortex_help anytime for this playbook.`;
+export interface RegisterCortexToolsOptions {
+  profile?: McpToolProfile;
+  /** Bearer token used for audit rows (never logged raw). */
+  auditToken?: string;
+}
 
 /** Register Cortex retrieval tools on a fresh McpServer instance. */
 export function registerCortexTools(
   server: McpServer,
   store: CortexStore,
+  options: RegisterCortexToolsOptions = {},
 ): void {
+  const profile: McpToolProfile = options.profile ?? "mirror";
+  const auditToken = options.auditToken ?? "anonymous";
+  const isOps = profile === "ops";
+  const playbook = playbookForProfile(profile);
+
   server.registerTool(
     "cortex_help",
     {
       description:
-        "Return the Cortex retrieval playbook: which tool to use for work vs calendar vs deep evidence, and known failure modes (calendar bias, empty search hints).",
+        "Return the Cortex retrieval playbook for this endpoint (Mirror vs Ops).",
       inputSchema: {},
     },
-    async () => textResult({ playbook: CORTEX_RETRIEVAL_PLAYBOOK }),
+    async () =>
+      textResult({
+        profile,
+        playbook,
+        evidenceRule:
+          "Distillates by default. Raw evidence only via retrieve_supporting_evidence under deterministic policy + capabilities.",
+      }),
   );
 
-  server.registerTool(
-    "search_records",
-    {
-      description:
-        "Keyword search over canonical record payload text (and distillate content). WHEN TO USE: find emails, GitHub items, drive files, or named topics by token. WHAT IT MISSES: pure semantic similarity (use search_memory); schedule (use get_calendar_range). Defaults exclude calendar_event so open work searches are not drowned by recurring events. Empty results include a hint — do not invent 'sparse indexing'.",
-      inputSchema: {
-        query: z
-          .string()
-          .describe(
-            "Search query (matched against payload text, ids, types, distillates)",
-          ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("Max results (default 20)"),
-        recordTypes: z
-          .array(z.string())
-          .optional()
-          .describe(
-            "Only these record_type values (e.g. email_message, github_pr)",
-          ),
-        sources: z
-          .array(z.string())
-          .optional()
-          .describe("Only these source_id values (e.g. gmail, github)"),
-        excludeTypes: z
-          .array(z.string())
-          .optional()
-          .describe(
-            "Exclude record types (calendar_event excluded by default)",
-          ),
-        since: z.string().optional().describe("ISO lower bound on occurred_at"),
-        until: z.string().optional().describe("ISO upper bound on occurred_at"),
-        includeCalendar: z
-          .boolean()
-          .optional()
-          .describe("If true, do not default-exclude calendar_event"),
+  if (isOps) {
+    server.registerTool(
+      "search_records",
+      {
+        description:
+          "OPS: Keyword search over canonical record payload text (and distillate content). Mirror agents must use search_memory + evidence broker instead.",
+        inputSchema: {
+          query: z
+            .string()
+            .describe(
+              "Search query (matched against payload text, ids, types, distillates)",
+            ),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(100)
+            .optional()
+            .describe("Max results (default 20)"),
+          recordTypes: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Only these record_type values (e.g. email_message, github_pr)",
+            ),
+          sources: z
+            .array(z.string())
+            .optional()
+            .describe("Only these source_id values (e.g. gmail, github)"),
+          excludeTypes: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Exclude record types (calendar_event excluded by default)",
+            ),
+          since: z.string().optional().describe("ISO lower bound on occurred_at"),
+          until: z.string().optional().describe("ISO upper bound on occurred_at"),
+          includeCalendar: z
+            .boolean()
+            .optional()
+            .describe("If true, do not default-exclude calendar_event"),
+        },
       },
-    },
-    async ({
-      query,
-      limit,
-      recordTypes,
-      sources,
-      excludeTypes,
-      since,
-      until,
-      includeCalendar,
-    }) => {
-      const result = await store.searchRecords(query, {
-        limit: limit ?? 20,
+      async ({
+        query,
+        limit,
         recordTypes,
         sources,
         excludeTypes,
         since,
         until,
-        excludeCalendarDefault: !includeCalendar,
-      });
-      return textResult({
-        mode: store.mode,
-        count: result.hits.length,
-        distillateCount: result.distillates.length,
-        results: result.hits,
-        distillates: result.distillates,
-        hint: result.hint,
-      });
-    },
-  );
+        includeCalendar,
+      }) => {
+        const result = await store.searchRecords(query, {
+          limit: limit ?? 20,
+          recordTypes,
+          sources,
+          excludeTypes,
+          since,
+          until,
+          excludeCalendarDefault: !includeCalendar,
+        });
+        return textResult({
+          mode: store.mode,
+          count: result.hits.length,
+          distillateCount: result.distillates.length,
+          results: result.hits,
+          distillates: result.distillates,
+          hint: result.hint,
+        });
+      },
+    );
+  }
 
   server.registerTool(
     "search_memory",
     {
       description:
-        "Hybrid memory search: distillate summaries (keyword + vector when distillates.embedding is populated) merged with canonical keyword hits. Supports mode=operational|reflective|both plus domain/topic/sourceType lenses. Prefer distillate hits; call get_session or ask_mirror for synthesis.",
+        "Hybrid memory search over distillates (keyword + vector when embeddings exist). Supports mode=operational|reflective|both. Prefer this over raw vault tools. For raw excerpts use retrieve_supporting_evidence.",
       inputSchema: {
         query: z.string().describe("Natural-language or keyword query"),
         limit: z
@@ -194,29 +216,31 @@ export function registerCortexTools(
     },
   );
 
-  server.registerTool(
-    "get_session",
-    {
-      description:
-        "Deep-dive an AI session by UUID or source_session_id: messages, tool summaries, and attached distillate. WHEN TO USE: after list_recent_work / search_memory returns a session id and you need evidence. WHAT IT MISSES: cross-session synthesis (use search_memory / project briefs).",
-      inputSchema: {
-        sessionId: z.string().describe("Session UUID or source session id"),
+  if (isOps) {
+    server.registerTool(
+      "get_session",
+      {
+        description:
+          "OPS: Deep-dive an AI session (full messages). Mirror must use retrieve_supporting_evidence with source_types=['session'] instead.",
+        inputSchema: {
+          sessionId: z.string().describe("Session UUID or source session id"),
+        },
       },
-    },
-    async ({ sessionId }) => {
-      const session = await store.getSession(sessionId);
-      if (!session) {
-        return textResult({ mode: store.mode, found: false, sessionId });
-      }
-      return textResult({ mode: store.mode, found: true, session });
-    },
-  );
+      async ({ sessionId }) => {
+        const session = await store.getSession(sessionId);
+        if (!session) {
+          return textResult({ mode: store.mode, found: false, sessionId });
+        }
+        return textResult({ mode: store.mode, found: true, session });
+      },
+    );
+  }
 
   server.registerTool(
     "list_recent_work",
     {
       description:
-        "List recent work-biased activity: sessions plus github_* / email (and optional record filters). WHEN TO USE: 'what did I work on lately?'. Defaults drop calendar_event and occurred_at > now()+7d so recurring future calendar does not dominate. WHAT IT MISSES: schedule — use get_calendar_range. Pass kinds=['session'] for sessions only; workMode=false to include all record types (still respects excludeTypes/horizon).",
+        "List recent work-biased activity. Mirror: prefer sessions + github/email signals for orientation; deep session text is broker-only. Schedule → get_calendar_range.",
       inputSchema: {
         limit: z
           .number()
@@ -275,35 +299,42 @@ export function registerCortexTools(
       });
       return textResult({
         mode: store.mode,
+        profile,
         count: items.length,
         items,
+        note: isOps
+          ? undefined
+          : "Session message bodies are broker-only on Mirror.",
       });
     },
   );
 
-  server.registerTool(
-    "get_email_thread",
-    {
-      description:
-        "Load a Gmail thread by thread id (from email_message payload.threadId). WHEN TO USE: after search_records finds an email. WHAT IT MISSES: non-Gmail sources.",
-      inputSchema: {
-        threadId: z.string().describe("Gmail thread id"),
+  if (isOps) {
+    server.registerTool(
+      "get_email_thread",
+      {
+        description:
+          "OPS: Load a full Gmail thread. Mirror must use the evidence broker.",
+        inputSchema: {
+          threadId: z.string().describe("Gmail thread id"),
+        },
       },
-    },
-    async ({ threadId }) => {
-      const thread = await store.getEmailThread(threadId);
-      if (!thread) {
-        return textResult({ mode: store.mode, found: false, threadId });
-      }
-      return textResult({ mode: store.mode, found: true, thread });
-    },
-  );
+      async ({ threadId }) => {
+        const thread = await store.getEmailThread(threadId);
+        if (!thread) {
+          return textResult({ mode: store.mode, found: false, threadId });
+        }
+        return textResult({ mode: store.mode, found: true, thread });
+      },
+    );
+  }
 
   server.registerTool(
     "get_calendar_range",
     {
-      description:
-        "THE schedule tool: list calendar_event records between start and end (ISO-8601). WHEN TO USE: meetings, availability, 'what's on my calendar'. Do not use list_recent_work for this — future recurring events bias occurred_at desc.",
+      description: isOps
+        ? "OPS: Calendar events in range (may include location)."
+        : "Sanitised calendar structure (summary/start/end/attendee_count). Descriptions and attachments require retrieve_supporting_evidence.",
       inputSchema: {
         start: z.string().describe("Range start (ISO-8601)"),
         end: z.string().describe("Range end (ISO-8601)"),
@@ -311,149 +342,150 @@ export function registerCortexTools(
     },
     async ({ start, end }) => {
       const events = await store.getCalendarRange(start, end);
-      return textResult({
-        mode: store.mode,
-        count: events.length,
+      if (isOps) {
+        return textResult({
+          mode: store.mode,
+          count: events.length,
+          start,
+          end,
+          events,
+        });
+      }
+      const raw = await store.listRecordsByTypeInRange(
+        "calendar_event",
         start,
         end,
-        events,
-      });
-    },
-  );
-
-  server.registerTool(
-    "get_file_summary",
-    {
-      description:
-        "Get a Drive (or similar) file summary by record UUID or source_record_id. WHEN TO USE: after a drive_file hit. WHAT IT MISSES: full file body (vault stores metadata/summary).",
-      inputSchema: {
-        fileId: z.string().describe("Record UUID or source_record_id"),
-      },
-    },
-    async ({ fileId }) => {
-      const file = await store.getFileSummary(fileId);
-      if (!file) {
-        return textResult({ mode: store.mode, found: false, fileId });
-      }
-      return textResult({ mode: store.mode, found: true, file });
-    },
-  );
-
-  server.registerTool(
-    "get_ebook",
-    {
-      description:
-        "Look up a Calibre ebook by record UUID or source_record_id (uuid). Metadata/paths only — no ebook binaries.",
-      inputSchema: {
-        ebookId: z.string().describe("Record UUID or Calibre uuid"),
-      },
-    },
-    async ({ ebookId }) => {
-      const hits = await store.listRecordsByType("ebook", 200);
-      const hit =
-        hits.find(
-          (h) => h.id === ebookId || h.sourceRecordId === ebookId,
-        ) ?? null;
-      if (!hit) {
-        return textResult({ mode: store.mode, found: false, ebookId });
-      }
-      return textResult({ mode: store.mode, found: true, ebook: hit });
-    },
-  );
-
-  server.registerTool(
-    "list_bookmarks",
-    {
-      description:
-        "List recent browser bookmark records. Bookmarks + keyword_search_terms only — no visit firehose.",
-      inputSchema: {
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("Max results (default 20)"),
-      },
-    },
-    async ({ limit }) => {
-      const results = await store.listRecordsByType("bookmark", limit ?? 20);
+        200,
+      );
+      const byId = new Map(raw.map((r) => [r.id, r]));
+      const sanitised = sanitiseCalendarEvents(events, byId);
       return textResult({
         mode: store.mode,
-        count: results.length,
-        results,
+        profile: "mirror",
+        sanitised: true,
+        count: sanitised.length,
+        start,
+        end,
+        events: sanitised,
+        note: "Descriptions/attachments via retrieve_supporting_evidence (calendar + description_excerpt / attachment_name).",
       });
     },
   );
 
-  server.registerTool(
-    "recent_plays",
-    {
-      description:
-        "List recent Spotify play / track / episode records (spotify_play, spotify_track, spotify_episode).",
-      inputSchema: {
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("Max results (default 20)"),
+  if (isOps) {
+    server.registerTool(
+      "get_file_summary",
+      {
+        description:
+          "OPS: Drive file summary by id. Mirror uses broker for text_preview.",
+        inputSchema: {
+          fileId: z.string().describe("Record UUID or source_record_id"),
+        },
       },
-    },
-    async ({ limit }) => {
-      const capped = limit ?? 20;
-      const [plays, tracks, episodes] = await Promise.all([
-        store.listRecordsByType("spotify_play", capped),
-        store.listRecordsByType("spotify_track", capped),
-        store.listRecordsByType("spotify_episode", capped),
-      ]);
-      const results = [...plays, ...tracks, ...episodes]
-        .sort((a, b) =>
-          (b.occurredAt ?? "").localeCompare(a.occurredAt ?? ""),
-        )
-        .slice(0, capped);
-      return textResult({
-        mode: store.mode,
-        count: results.length,
-        results,
-      });
-    },
-  );
+      async ({ fileId }) => {
+        const file = await store.getFileSummary(fileId);
+        if (!file) {
+          return textResult({ mode: store.mode, found: false, fileId });
+        }
+        return textResult({ mode: store.mode, found: true, file });
+      },
+    );
 
-  server.registerTool(
-    "recent_watches",
-    {
-      description:
-        "List recent YouTube watch / video records (youtube_watch, youtube_video).",
-      inputSchema: {
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("Max results (default 20)"),
+    server.registerTool(
+      "get_ebook",
+      {
+        description:
+          "OPS: Look up a Calibre ebook by record UUID or source_record_id.",
+        inputSchema: {
+          ebookId: z.string().describe("Record UUID or Calibre uuid"),
+        },
       },
-    },
-    async ({ limit }) => {
-      const capped = limit ?? 20;
-      const [watches, videos] = await Promise.all([
-        store.listRecordsByType("youtube_watch", capped),
-        store.listRecordsByType("youtube_video", capped),
-      ]);
-      const results = [...watches, ...videos]
-        .sort((a, b) =>
-          (b.occurredAt ?? "").localeCompare(a.occurredAt ?? ""),
-        )
-        .slice(0, capped);
-      return textResult({
-        mode: store.mode,
-        count: results.length,
-        results,
-      });
-    },
-  );
+      async ({ ebookId }) => {
+        const hits = await store.listRecordsByType("ebook", 200);
+        const hit =
+          hits.find(
+            (h) => h.id === ebookId || h.sourceRecordId === ebookId,
+          ) ?? null;
+        if (!hit) {
+          return textResult({ mode: store.mode, found: false, ebookId });
+        }
+        return textResult({ mode: store.mode, found: true, ebook: hit });
+      },
+    );
+
+    server.registerTool(
+      "list_bookmarks",
+      {
+        description: "OPS: List recent browser bookmark records.",
+        inputSchema: {
+          limit: z.number().int().min(1).max(100).optional(),
+        },
+      },
+      async ({ limit }) => {
+        const results = await store.listRecordsByType("bookmark", limit ?? 20);
+        return textResult({
+          mode: store.mode,
+          count: results.length,
+          results,
+        });
+      },
+    );
+
+    server.registerTool(
+      "recent_plays",
+      {
+        description: "OPS: List recent Spotify play/track/episode records.",
+        inputSchema: {
+          limit: z.number().int().min(1).max(100).optional(),
+        },
+      },
+      async ({ limit }) => {
+        const capped = limit ?? 20;
+        const [plays, tracks, episodes] = await Promise.all([
+          store.listRecordsByType("spotify_play", capped),
+          store.listRecordsByType("spotify_track", capped),
+          store.listRecordsByType("spotify_episode", capped),
+        ]);
+        const results = [...plays, ...tracks, ...episodes]
+          .sort((a, b) =>
+            (b.occurredAt ?? "").localeCompare(a.occurredAt ?? ""),
+          )
+          .slice(0, capped);
+        return textResult({
+          mode: store.mode,
+          count: results.length,
+          results,
+        });
+      },
+    );
+
+    server.registerTool(
+      "recent_watches",
+      {
+        description: "OPS: List recent YouTube watch/video records.",
+        inputSchema: {
+          limit: z.number().int().min(1).max(100).optional(),
+        },
+      },
+      async ({ limit }) => {
+        const capped = limit ?? 20;
+        const [watches, videos] = await Promise.all([
+          store.listRecordsByType("youtube_watch", capped),
+          store.listRecordsByType("youtube_video", capped),
+        ]);
+        const results = [...watches, ...videos]
+          .sort((a, b) =>
+            (b.occurredAt ?? "").localeCompare(a.occurredAt ?? ""),
+          )
+          .slice(0, capped);
+        return textResult({
+          mode: store.mode,
+          count: results.length,
+          results,
+        });
+      },
+    );
+  }
 
   server.registerTool(
     "list_entities",
@@ -699,10 +731,189 @@ export function registerCortexTools(
   );
 
   server.registerTool(
+    "request_evidence_capability",
+    {
+      description:
+        "Mint a short-lived scoped capability for sensitive broker access. Restricted class cannot be minted here — use Ops issue_restricted_capability. Routine fields do not need a capability.",
+      inputSchema: {
+        purpose: z.string().describe("Why raw evidence is needed (audited)"),
+        sourceTypes: z
+          .array(z.string())
+          .describe("email|session|calendar|drive|github|youtube|…"),
+        since: z.string().describe("ISO start of allowed window"),
+        until: z.string().describe("ISO end of allowed window"),
+        subjectIds: z.array(z.string()).optional(),
+        maxResults: z.number().int().min(1).max(10).optional(),
+        permittedFields: z
+          .array(z.string())
+          .describe(
+            "e.g. timestamp,sender,subject,body_excerpt,session_excerpt,description_excerpt,text_preview",
+          ),
+        ttlSeconds: z.number().int().min(30).max(900).optional(),
+      },
+    },
+    async ({
+      purpose,
+      sourceTypes,
+      since,
+      until,
+      subjectIds,
+      maxResults,
+      permittedFields,
+      ttlSeconds,
+    }) => {
+      const minted = mintCapability({
+        purpose,
+        class: "sensitive",
+        sourceTypes,
+        dateRange: { since, until },
+        subjectIds,
+        maxResults: maxResults ?? 5,
+        permittedFields,
+        ttlSeconds,
+        issuedBy: "mirror",
+      });
+      void logMcpAudit({
+        token: auditToken,
+        route: "request_evidence_capability",
+        method: "TOOL",
+        metadata: {
+          surface: "request_evidence_capability",
+          endpoint: profile,
+          purpose,
+          ok: minted.ok,
+          denied: minted.ok ? null : minted.denied,
+        },
+      });
+      if (!minted.ok) {
+        return textResult({
+          ok: false,
+          denied: minted.denied,
+          reason: minted.reason,
+        });
+      }
+      return textResult({
+        ok: true,
+        capability: capabilityPublicView(minted.capability),
+      });
+    },
+  );
+
+  if (isOps) {
+    server.registerTool(
+      "issue_restricted_capability",
+      {
+        description:
+          "OPS ONLY: Mint a restricted, short-lived capability for high-sensitivity broker access.",
+        inputSchema: {
+          purpose: z.string(),
+          sourceTypes: z.array(z.string()),
+          since: z.string(),
+          until: z.string(),
+          subjectIds: z.array(z.string()).optional(),
+          maxResults: z.number().int().min(1).max(10).optional(),
+          permittedFields: z.array(z.string()),
+          ttlSeconds: z.number().int().min(30).max(600).optional(),
+        },
+      },
+      async ({
+        purpose,
+        sourceTypes,
+        since,
+        until,
+        subjectIds,
+        maxResults,
+        permittedFields,
+        ttlSeconds,
+      }) => {
+        const minted = mintCapability({
+          purpose,
+          class: "restricted",
+          sourceTypes,
+          dateRange: { since, until },
+          subjectIds,
+          maxResults: maxResults ?? 3,
+          permittedFields,
+          ttlSeconds,
+          issuedBy: "ops",
+        });
+        void logMcpAudit({
+          token: auditToken,
+          route: "issue_restricted_capability",
+          method: "TOOL",
+          metadata: {
+            surface: "issue_restricted_capability",
+            endpoint: "ops",
+            purpose,
+            ok: minted.ok,
+            denied: minted.ok ? null : minted.denied,
+          },
+        });
+        if (!minted.ok) {
+          return textResult({
+            ok: false,
+            denied: minted.denied,
+            reason: minted.reason,
+          });
+        }
+        return textResult({
+          ok: true,
+          capability: capabilityPublicView(minted.capability),
+        });
+      },
+    );
+  }
+
+  server.registerTool(
+    "retrieve_supporting_evidence",
+    {
+      description:
+        "Policy-gated raw evidence broker. Returns redacted excerpts only (ephemeral). Sensitive fields require a capability; restricted requires ops-issued capability. Deterministic policy decides access.",
+      inputSchema: {
+        purpose: z.string(),
+        sourceTypes: z.array(z.string()),
+        since: z.string().optional(),
+        until: z.string().optional(),
+        subjectIds: z.array(z.string()).optional(),
+        maxResults: z.number().int().min(1).max(10).optional(),
+        permittedFields: z.array(z.string()).optional(),
+        capabilityId: z.string().optional(),
+      },
+    },
+    async ({
+      purpose,
+      sourceTypes,
+      since,
+      until,
+      subjectIds,
+      maxResults,
+      permittedFields,
+      capabilityId,
+    }) => {
+      const result = await retrieveSupportingEvidence(
+        store,
+        profile,
+        {
+          purpose,
+          sourceTypes,
+          dateRange:
+            since && until ? { since, until } : undefined,
+          subjectIds,
+          maxResults,
+          permittedFields,
+          capabilityId,
+        },
+        auditToken,
+      );
+      return textResult(result);
+    },
+  );
+
+  server.registerTool(
     "ask_mirror",
     {
       description:
-        "Citation-required query-time Analyst synthesis over lensed memories + connection candidates. Ephemeral (not persisted). Use for operational recall and reflective self-understanding. Hypotheses must not be treated as facts; insufficient evidence is a valid answer.",
+        "Citation-required query-time Analyst over distillates + connection candidates. Ephemeral. Does not silently load raw vault rows — use retrieve_supporting_evidence when needed, then re-ask. Hypotheses ≠ facts.",
       inputSchema: {
         query: z.string(),
         mode: z.enum(["operational", "reflective", "both"]).optional(),
@@ -710,8 +921,14 @@ export function registerCortexTools(
       },
     },
     async ({ query, mode, limit }) => {
-      const result = await askMirror(store, { query, mode, limit });
-      return textResult({ ...result, vaultMode: store.mode });
+      const result = await askMirror(store, {
+        query,
+        mode,
+        limit,
+        auditToken,
+        endpoint: profile,
+      });
+      return textResult({ ...result, vaultMode: store.mode, profile });
     },
   );
 
@@ -719,12 +936,27 @@ export function registerCortexTools(
     "get_portrait",
     {
       description:
-        "Return the latest versioned portrait snapshot (kind=portrait), if any. Sensitive reflective content — use deliberately.",
+        "Return the latest versioned portrait (reflective_sensitive). Use deliberately; stronger protection than ordinary distillates.",
       inputSchema: {},
     },
     async () => {
       const portrait = await getLatestPortrait(store);
-      return textResult({ mode: store.mode, portrait });
+      void logMcpAudit({
+        token: auditToken,
+        route: "get_portrait",
+        method: "TOOL",
+        metadata: {
+          surface: "portrait",
+          endpoint: profile,
+          sensitivity: "reflective_sensitive",
+          portraitId: portrait?.id ?? null,
+        },
+      });
+      return textResult({
+        mode: store.mode,
+        sensitivity: "reflective_sensitive",
+        portrait,
+      });
     },
   );
 
@@ -762,14 +994,18 @@ export function registerCortexTools(
   );
 }
 
-export function createCortexMcpServer(store: CortexStore): McpServer {
+export function createCortexMcpServer(
+  store: CortexStore,
+  options: RegisterCortexToolsOptions = {},
+): McpServer {
+  const profile = options.profile ?? "mirror";
   const server = new McpServer(
     {
-      name: "cortex",
+      name: profile === "ops" ? "cortex-ops" : "cortex",
       version: "0.0.0",
     },
-    { instructions: CORTEX_RETRIEVAL_PLAYBOOK },
+    { instructions: playbookForProfile(profile) },
   );
-  registerCortexTools(server, store);
+  registerCortexTools(server, store, options);
   return server;
 }

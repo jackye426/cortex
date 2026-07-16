@@ -1,7 +1,9 @@
 /**
  * Query-time Analyst (ask_mirror) — citation-required synthesis.
  * Answers are ephemeral by default (not persisted).
+ * Distillates by default — no silent raw vault expansion (use evidence broker).
  */
+import { logMcpAudit } from "./audit.js";
 import {
   chatJsonCompletion,
   distillateModel,
@@ -11,18 +13,21 @@ import {
   rankConnectionCandidates,
   type CandidateMemory,
 } from "./connection-candidates.js";
+import type { McpToolProfile } from "./mcp-profile.js";
 import {
   distillateMatchesLenses,
   type MemoryMode,
 } from "./store/memory-lenses.js";
 import type { CortexStore } from "./store/index.js";
-import type { DistillateRow, MemorySearchHit, RecordHit } from "./store/types.js";
+import type { DistillateRow, MemorySearchHit } from "./store/types.js";
 
 export interface AskMirrorOptions {
   query: string;
   mode?: MemoryMode;
   limit?: number;
   dryRun?: boolean;
+  auditToken?: string;
+  endpoint?: McpToolProfile;
 }
 
 export interface MirrorClaim {
@@ -152,6 +157,29 @@ export async function askMirror(
   const mode = classifyMode(options.query, options.mode);
   const limit = options.limit ?? 12;
   const trimmed = options.query.trim();
+  const finish = (result: AskMirrorResult): AskMirrorResult => {
+    if (options.auditToken) {
+      void logMcpAudit({
+        token: options.auditToken,
+        route: "ask_mirror",
+        method: "TOOL",
+        metadata: {
+          surface: "ask_mirror",
+          endpoint: options.endpoint ?? "mirror",
+          purpose: trimmed.slice(0, 240),
+          model: result.engine,
+          evidence_classes: [
+            ...new Set(result.evidence.map((e) => e.evidenceStrength)),
+          ],
+          source_refs: result.evidence.map((e) => e.id).slice(0, 40),
+          retention: "ephemeral",
+          confidence: result.confidence,
+          mode: result.mode,
+        },
+      });
+    }
+    return result;
+  };
 
   const wantsEmail =
     /\b(email|gmail|inbox|thread|commitment|open loop|commitments)\b/i.test(
@@ -180,26 +208,7 @@ export async function askMirror(
     evidenceStrength: h.kind === "distillate" ? "distillate" : "keyword_only",
   }));
 
-  // Expand keyword-only records when reflective/cross questions need support
-  if (mode !== "operational") {
-    const records = await store.searchRecords(trimmed, {
-      limit: 8,
-      recordTypes: ["youtube_watch", "youtube_video", "email_message"],
-    });
-    for (const r of records.hits) {
-      if (evidence.some((e) => e.id === r.id)) continue;
-      evidence.push({
-        id: r.id,
-        kind: r.recordType,
-        title:
-          (typeof r.payload.title === "string" && r.payload.title) ||
-          (typeof r.payload.subject === "string" && r.payload.subject) ||
-          r.sourceRecordId,
-        snippet: JSON.stringify(r.payload).slice(0, 220),
-        evidenceStrength: "keyword_only",
-      });
-    }
-  }
+  // Raw vault rows are broker-only — do not silently expand email/youtube here.
 
   const boostKinds: string[] = [];
   if (wantsEmail) boostKinds.push("email_thread_digest");
@@ -365,11 +374,11 @@ export async function askMirror(
   if (!openaiConfigured() || options.dryRun) {
     const stub = stubAnswer(trimmed, evidence, candidateSummary);
     stub.mode = mode;
-    return stub;
+    return finish(stub);
   }
 
   if (evidence.length === 0 && ranked.length === 0) {
-    return {
+    return finish({
       answer: "Insufficient evidence in the vault for this question.",
       claims: [],
       contradictions: [],
@@ -381,7 +390,7 @@ export async function askMirror(
       evidence,
       candidates: candidateSummary,
       engine: "llm",
-    };
+    });
   }
 
   const evidenceBlock = evidence
@@ -442,7 +451,7 @@ Rules:
       allowedIds,
     );
 
-    return {
+    return finish({
       answer:
         typeof parsed.answer === "string"
           ? parsed.answer
@@ -458,7 +467,7 @@ Rules:
       evidence,
       candidates: candidateSummary,
       engine: "llm",
-    };
+    });
   } catch (err) {
     console.warn(
       "[ask_mirror] LLM failed:",
@@ -467,7 +476,7 @@ Rules:
     const stub = stubAnswer(trimmed, evidence, candidateSummary);
     stub.mode = mode;
     stub.gaps.push("LLM synthesis failed; returned stub.");
-    return stub;
+    return finish(stub);
   }
 }
 
@@ -479,4 +488,4 @@ export function _validateClaimsForTest(
   return validateClaims(claims, new Set(allowed));
 }
 
-export type { DistillateRow, MemorySearchHit, RecordHit };
+export type { DistillateRow, MemorySearchHit };

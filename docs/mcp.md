@@ -2,14 +2,18 @@
 
 Remote **streamable HTTP** MCP so Cursor, Claude Code, Codex, and ChatGPT can query your vault with bearer auth.
 
-**Production (Railway-primary):** `https://cortexmcp-server-production-1c59.up.railway.app/mcp`  
-Collectors stay on Windows; MCP + ingest API deploy on Railway. See [deploy.md](deploy.md) / [ops-windows.md](ops-windows.md).
+**Production (Railway-primary):**  
+- **Mirror (default agents):** `https://cortexmcp-server-production-1c59.up.railway.app/mcp`  
+- **Ops (maintenance):** `https://cortexmcp-server-production-1c59.up.railway.app/mcp/ops`  
+
+Collectors stay on Windows; MCP + ingest API deploy on Railway. See [deploy.md](deploy.md) / [ops-windows.md](ops-windows.md). Privilege model: [mirror-privilege-plan.md](mirror-privilege-plan.md).
 
 ## Run locally
 
 ```powershell
 # From repo root — token required (MCP or ingest)
 # .env: CORTEX_MCP_TOKEN=local-dev-token   # or reuse CORTEX_INGEST_TOKEN
+# .env: CORTEX_OPS_MCP_TOKEN=local-ops-token  # optional; falls back to MCP token
 
 pnpm install
 pnpm --filter @cortex/mcp-server dev
@@ -19,10 +23,12 @@ Defaults:
 
 | Item | Value |
 |------|--------|
-| URL | `http://localhost:8790/mcp` |
+| Mirror URL | `http://localhost:8790/mcp` |
+| Ops URL | `http://localhost:8790/mcp/ops` |
 | Health | `http://localhost:8790/health` |
 | Port | `MCP_PORT` or `PORT` (default **8790**) |
-| Auth | `Authorization: Bearer <CORTEX_MCP_TOKEN \|\| CORTEX_INGEST_TOKEN>` |
+| Mirror auth | `Authorization: Bearer <CORTEX_MCP_TOKEN \|\| CORTEX_INGEST_TOKEN>` |
+| Ops auth | `Authorization: Bearer <CORTEX_OPS_MCP_TOKEN \|\| CORTEX_MCP_TOKEN>` |
 | Store | Supabase when `SUPABASE_URL` + key set; else **fixture** mode |
 
 Smoke (tools/list):
@@ -37,15 +43,16 @@ curl -Method POST http://localhost:8790/mcp `
   -Body '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-## Retrieval playbook
+## Retrieval playbook (Mirror)
 
-Call `cortex_help` from any client, or follow:
+Call `cortex_help` from the Mirror endpoint, or follow:
 
-1. **What am I building?** → `list_recent_work` (sessions + github_* + email; calendar excluded; drops `occurred_at` > now+7d). Then `search_memory` / `search_records`. Deep-dive with `get_session`.
-2. **Schedule** → `get_calendar_range` only. Do **not** use `list_recent_work` for calendar (recurring future events dominate).
-3. **Keywords** → `search_records` matches **payload text** + distillate content (not just type/source ids). Defaults exclude `calendar_event`. Empty results include a `hint` — that is real emptiness, not “sparse indexing.”
-4. **Semantic / insight** → `search_memory` (distillates first; vector when `distillates.embedding` is populated). Use `mode=operational|reflective|both`.
-5. **Cited synthesis** → `ask_mirror` (ephemeral; requires citations). See [memory-substrate.md](memory-substrate.md).
+1. **What am I building?** → `list_recent_work`, then `search_memory` (`mode=operational`). Session **message bodies** are broker-only.
+2. **Schedule structure** → `get_calendar_range` (sanitised: summary/start/end/attendee_count). Descriptions/attachments → evidence broker.
+3. **Semantic / insight** → `search_memory` (`operational|reflective|both`).
+4. **Cited synthesis** → `ask_mirror` (ephemeral; distillates only — no silent raw expansion).
+5. **Raw excerpts** → `request_evidence_capability` (sensitive) then `retrieve_supporting_evidence`. Policy decides; restricted needs Ops `issue_restricted_capability`.
+6. **Ops vault tools** (`search_records`, `get_session`, `get_email_thread`, …) live only on `/mcp/ops`.
 
 ## Tools
 
