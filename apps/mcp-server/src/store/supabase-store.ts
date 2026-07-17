@@ -817,8 +817,8 @@ export class SupabaseStore implements CortexStore {
     recordType: string,
     limit = 20,
   ): Promise<RecordHit[]> {
-    // Raised from 100 so weekly compilers / email grouping are not truncated.
-    const capped = Math.max(1, Math.min(limit, 500));
+    // Raised so adapter backfills are not truncated at a low global top-N.
+    const capped = Math.max(1, Math.min(limit, 2000));
     const tombstoned = await this.loadTombstoneIds("record");
     let q = this.client
       .from("records")
@@ -827,7 +827,7 @@ export class SupabaseStore implements CortexStore {
       )
       .eq("record_type", recordType)
       .order("occurred_at", { ascending: false, nullsFirst: false })
-      .limit(Math.min(capped + tombstoned.size, 600));
+      .limit(Math.min(capped + tombstoned.size, 2500));
     q = this.applyOwner(q);
     const { data, error } = await q;
     if (error) {
