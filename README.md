@@ -4,7 +4,7 @@ Personal AI/session vault, canonical store, and remote MCP. **Collectors run nat
 
 ## Status
 
-**Live path:** vault + authenticated MCP retrieval → regenerable **LLM distillates** → **pgvector on distillates** → Personal Executive Twin scaffolding (entities / project briefs). No Obsidian middle tier.
+**Live path:** vault + authenticated MCP retrieval → regenerable **LLM distillates** → **pgvector on distillates** → Personal Executive Twin (D1–D5) → intrapersonal intelligence (I0–I6): evidence-balanced insights, interest map, hypothesis ledger, experiments, longitudinal self-model, four MCP views. No Obsidian middle tier.
 
 | Area | State |
 |------|--------|
@@ -12,8 +12,8 @@ Personal AI/session vault, canonical store, and remote MCP. **Collectors run nat
 | Ingest API + MCP | Railway; bearer auth; work-biased `list_recent_work`, payload `search_records`, hybrid `search_memory` |
 | Distillates | OpenAI-compatible HTTP (`OPENAI_API_KEY`); embed on write; `pnpm embed-backfill` for existing rows |
 | Twin (D1–D5) | Entities, project briefs, priority_vs_actual, decisions, self_model/portrait, allocator_context, ask_mirror — see [docs/twin.md](docs/twin.md) / [docs/memory-substrate.md](docs/memory-substrate.md) |
-| Intrapersonal (I0–I6) | Planned: evidence integrity, interest map, hypothesis ledger, experiments/outcomes, longitudinal self-model, four views — [docs/intrapersonal-roadmap.md](docs/intrapersonal-roadmap.md) |
-| Source adapters | Post-gate grain plan (email → GitHub → calendar…) — [docs/source-adapters.md](docs/source-adapters.md) |
+| Intrapersonal (I0–I6) | Shipped (MCP-first): source-balanced evidence, observations, interests + Interest Map, hypothesis ledger with confirm/reject/refine, experiments/outcomes, weekly mirror, open questions, longitudinal diffs, VIR metrics, portrait-v2 — [docs/intrapersonal-roadmap.md](docs/intrapersonal-roadmap.md) |
+| Source adapters | Email/GitHub/calendar/drive + browser/spotify/reading interest digests — [docs/source-adapters.md](docs/source-adapters.md) |
 | Parallel data | YouTube Takeout + ChatGPT export (sharded ZIP supported) — does not block MCP |
 
 **Phases (history):** 0 scaffold → 1 AI adapters → 2b Calibre/browser → 3 ChatGPT → 4 GitHub → 5 Google → 5b Spotify/YouTube → 6 MCP → 7 hardening. Details in `docs/`.
@@ -168,7 +168,7 @@ Collector-only: `apps/collector/ecosystem.config.cjs`.
 
 ### Supabase
 
-See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo (including `20260712200000_distillate_embeddings_search.sql` for pgvector + search RPCs). Linking an EU project is required before real vault writes. Apply with `npx supabase db push` when linked.
+See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo (pgvector search RPCs, Mirror role grants, and intrapersonal I1–I5 tables: `observations`, `interests`, `hypotheses`, `self_model_versions`, `decisions`/`experiments`, `self_model_diffs`, …). Linking an EU project is required before real vault writes. Apply with `npx supabase db push` when linked.
 
 ## Scripts
 
@@ -181,9 +181,10 @@ See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo (including `20
 | `pnpm distillate` | Session distillates (LLM or stub); `--project-brief`, `--seed-entities`, `--priority-vs-actual`, `--self-model` |
 | `pnpm embed-backfill` | Embed existing distillates without re-LLM |
 | `pnpm youtube-digest` | Weekly YouTube interest digest |
-| `pnpm quality-gate` | Run baseline Mirror evaluation questions |
-| `pnpm source-adapter` | Post-gate source distillate adapters (`--list`) |
-| `pnpm twin-pipeline` | Nightly/weekly/backfill orchestration |
+| `pnpm quality-gate` | Mirror eval (`--suite=memory\|insight\|all`; `--fixture`) |
+| `pnpm intrapersonal-metrics` | Validated Insight Rate + supporting measures |
+| `pnpm source-adapter` | Post-gate source distillate adapters (`--list`; includes `reading-interest`) |
+| `pnpm twin-pipeline` | Nightly/weekly/backfill (includes observations, interest-map, self-model v2, weekly mirror) |
 | `pnpm dev:collector` | Run collector daemon (Google incremental sync) |
 | `pnpm pm2:start` | Start API + MCP + collector via pm2 |
 | `pnpm backfill` | Backfill → ingest |
