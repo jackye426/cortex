@@ -28,7 +28,6 @@ import {
   runPriorityVsActual,
   seedEntitiesFromDistillates,
 } from "./project-brief.js";
-import { sanitiseCalendarEvents } from "./sanitised-calendar.js";
 import type { CortexStore } from "./store/index.js";
 
 function textResult(data: unknown) {
@@ -49,6 +48,11 @@ export interface RegisterCortexToolsOptions {
   profile?: McpToolProfile;
   /** Bearer token used for audit rows (never logged raw). */
   auditToken?: string;
+  /**
+   * Vault credential store for broker raw reads + compilers that need sessions.
+   * Defaults to the primary `store` (Ops / fixture).
+   */
+  vaultStore?: CortexStore;
 }
 
 /** Register Cortex retrieval tools on a fresh McpServer instance. */
@@ -61,6 +65,7 @@ export function registerCortexTools(
   const auditToken = options.auditToken ?? "anonymous";
   const isOps = profile === "ops";
   const playbook = playbookForProfile(profile);
+  const vaultStore = options.vaultStore ?? store;
 
   server.registerTool(
     "cortex_help",
@@ -341,32 +346,27 @@ export function registerCortexTools(
       },
     },
     async ({ start, end }) => {
-      const events = await store.getCalendarRange(start, end);
       if (isOps) {
+        const events = await store.getCalendarRange(start, end);
         return textResult({
           mode: store.mode,
+          credential: store.credential,
           count: events.length,
           start,
           end,
           events,
         });
       }
-      const raw = await store.listRecordsByTypeInRange(
-        "calendar_event",
-        start,
-        end,
-        200,
-      );
-      const byId = new Map(raw.map((r) => [r.id, r]));
-      const sanitised = sanitiseCalendarEvents(events, byId);
+      const events = await store.getCalendarStructure(start, end);
       return textResult({
         mode: store.mode,
+        credential: store.credential,
         profile: "mirror",
         sanitised: true,
-        count: sanitised.length,
+        count: events.length,
         start,
         end,
-        events: sanitised,
+        events,
         note: "Descriptions/attachments via retrieve_supporting_evidence (calendar + description_excerpt / attachment_name).",
       });
     },
@@ -697,7 +697,7 @@ export function registerCortexTools(
       },
     },
     async ({ dryRun, weekOf }) => {
-      const result = await runPriorityVsActual(store, { dryRun, weekOf });
+      const result = await runPriorityVsActual(vaultStore, { dryRun, weekOf });
       return textResult(result);
     },
   );
@@ -904,6 +904,7 @@ export function registerCortexTools(
           capabilityId,
         },
         auditToken,
+        vaultStore,
       );
       return textResult(result);
     },

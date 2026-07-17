@@ -56,8 +56,5 @@ console.error(
   `\nMinted cortex_mirror JWT (exp ~${years}y). Set SUPABASE_MIRROR_KEY to this value.`,
 );
 console.error(
-  "Note: MCP does not switch Mirror handlers to this key until the dual-client wiring lands;",
-);
-console.error(
-  "creating the role + key now is still the correct prep step.",
+  "Railway MCP /mcp uses this key; /mcp/ops and compilers keep SERVICE_ROLE.",
 );
