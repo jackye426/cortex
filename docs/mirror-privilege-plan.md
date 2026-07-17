@@ -120,6 +120,8 @@ Agent requests never bypass policy.
 
 Cursor default config points at **Mirror only**.
 
+→ Prefer OpenAI local client (`@cortex/openai-mirror`) pointed at **Mirror only**. Ops stays on `/mcp/ops` with a separate token.
+
 **Mirror must not register**
 
 - `search_records`

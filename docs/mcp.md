@@ -1,12 +1,36 @@
 # Cortex remote MCP
 
-Remote **streamable HTTP** MCP so Cursor, Claude Code, Codex, and ChatGPT can query your vault with bearer auth.
+Remote **streamable HTTP** MCP for OpenAI (primary), Claude Code, Codex, and ChatGPT. Cursor is optional and not required for day-to-day Mirror use.
 
 **Production (Railway-primary):**  
 - **Mirror (default agents):** `https://cortexmcp-server-production-1c59.up.railway.app/mcp`  
 - **Ops (maintenance):** `https://cortexmcp-server-production-1c59.up.railway.app/mcp/ops`  
 
 Collectors stay on Windows; MCP + ingest API deploy on Railway. See [deploy.md](deploy.md) / [ops-windows.md](ops-windows.md). Privilege model: [mirror-privilege-plan.md](mirror-privilege-plan.md).
+
+## OpenAI local app (recommended)
+
+Local Agents SDK client that talks to Mirror MCP (your process holds the bearer token; OpenAI never needs Ops):
+
+```powershell
+# Terminal A — local MCP (or skip and point at Railway)
+pnpm --filter @cortex/mcp-server dev
+
+# Terminal B — list tools / ask
+pnpm --filter @cortex/openai-mirror tools
+pnpm --filter @cortex/openai-mirror start -- "what was I working on this week?"
+```
+
+Env (repo `.env`):
+
+| Var | Purpose |
+|-----|---------|
+| `OPENAI_API_KEY` | OpenAI key for the Agents SDK / Responses API |
+| `CORTEX_MCP_TOKEN` | Bearer for Mirror `/mcp` |
+| `CORTEX_MIRROR_MCP_URL` | Default `http://localhost:8790/mcp`; set Railway URL for remote |
+| `CORTEX_MCP_MODE` | `local` (default) or `hosted` (OpenAI calls public Mirror URL) |
+
+`hosted` mode uses OpenAI **hosted MCP tools** (`authorization` = Mirror bearer). The Mirror URL must be publicly reachable (Railway), not localhost.
 
 ## Run locally
 
@@ -125,26 +149,7 @@ Twin extension points: [twin.md](twin.md).
 
 ## Client configuration
 
-Replace `YOUR_TOKEN` with the same value as `CORTEX_MCP_TOKEN` (or `CORTEX_INGEST_TOKEN`). For production, use the Railway HTTPS MCP URL.
-
-### Cursor
-
-Project `.cursor/mcp.json` (gitignored; copy from `.cursor/mcp.json.example`):
-
-```json
-{
-  "mcpServers": {
-    "cortex": {
-      "url": "https://cortexmcp-server-production-1c59.up.railway.app/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_CORTEX_MCP_TOKEN"
-      }
-    }
-  }
-}
-```
-
-Reload MCP in Cursor after editing. Local `http://localhost:8790/mcp` remains valid for offline/dev.
+Replace `YOUR_TOKEN` with the same value as `CORTEX_MCP_TOKEN` (or `CORTEX_INGEST_TOKEN`). For production, use the Railway HTTPS MCP URL. Prefer the OpenAI local app above for Mirror work.
 
 ### Claude Code
 
