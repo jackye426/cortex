@@ -1679,6 +1679,219 @@ export const youtubeInterestAdapter: SourceAdapter = {
   },
 };
 
+// ─── reading-interest-v1 (Calibre) ───────────────────────────────────────────
+
+const READING_INTEREST_COMPILER = "reading-interest-v1";
+
+function ebookTitle(r: RecordHit): string {
+  return String(r.payload.title ?? r.sourceRecordId).trim();
+}
+
+function ebookAuthors(r: RecordHit): string[] {
+  const a = r.payload.authors;
+  if (Array.isArray(a)) {
+    return a
+      .map((x) => (typeof x === "string" ? x : String(x)))
+      .filter((s) => s.trim().length > 0);
+  }
+  if (typeof a === "string" && a.trim()) return [a.trim()];
+  return [];
+}
+
+function ebookTags(r: RecordHit): string[] {
+  const t = r.payload.tags;
+  if (!Array.isArray(t)) return [];
+  return t
+    .filter((x): x is string => typeof x === "string")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export const readingInterestAdapter: SourceAdapter = {
+  id: "reading-interest",
+  kind: "reading_interest_digest",
+  domainDefault: "interest",
+  grain: "one digest per ISO week (ebooks touched / added)",
+  cadence: "weekly",
+  evaluationQuestions: [
+    "What reading themes recur outside active coding projects?",
+  ],
+  async run(ctx) {
+    const weekKey = ctx.weekKey ?? isoWeekKey();
+    const { start, end } = weekRange(weekKey);
+    const limit = Math.max(20, Math.min(ctx.limit ?? 100, 300));
+    // Prefer week-scoped; fall back to recent library slice for sparse Calibre dates.
+    let items = await ctx.store.listRecordsByTypeInRange(
+      "ebook",
+      start,
+      end,
+      limit,
+    );
+    items = items.filter((r) => inWeek(r.occurredAt, start, end));
+    if (items.length === 0) {
+      const recent = await ctx.store.listRecordsByType("ebook", limit);
+      items = recent.filter((r) => inWeek(r.occurredAt, start, end));
+    }
+    if (items.length === 0) {
+      return {
+        adapter: this.id,
+        dryRun: Boolean(ctx.dryRun),
+        scanned: 0,
+        written: 0,
+        skipped: 1,
+        distillates: [],
+      };
+    }
+
+    const fingerprint = sourceFingerprint(items);
+    const subjectId = stableSubjectUuid("reading-week", weekKey);
+    const existing = ctx.force
+      ? new Map()
+      : await loadExistingBySubject(
+          ctx.store,
+          "reading_interest_digest",
+          READING_INTEREST_COMPILER,
+          40,
+        );
+    if (shouldSkipSubject(existing, subjectId, fingerprint, ctx.force)) {
+      return {
+        adapter: this.id,
+        dryRun: Boolean(ctx.dryRun),
+        scanned: items.length,
+        written: 0,
+        skipped: 1,
+        distillates: [],
+      };
+    }
+
+    const titles = items.map(ebookTitle);
+    const tags = items.flatMap(ebookTags);
+    const authors = items.flatMap(ebookAuthors);
+    const topicSeeds = [...tags, ...titles.map((t) => t.split(/[:\-–]/)[0] ?? t)]
+      .map((t) => normalizeTopic(t))
+      .filter(Boolean);
+    const topicCounts = new Map<string, number>();
+    for (const t of topicSeeds) {
+      topicCounts.set(t, (topicCounts.get(t) ?? 0) + 1);
+    }
+    const recurring = [...topicCounts.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([t]) => t)
+      .slice(0, 10);
+    let topics = (
+      recurring.length
+        ? recurring
+        : [...topicCounts.keys()].slice(0, 8)
+    ).slice(0, 8);
+
+    const fallbackContent =
+      `Reading week ${weekKey}: ${items.length} ebook(s). Titles: ${titles.slice(0, 8).join("; ")}${authors.length ? `. Authors: ${[...new Set(authors)].slice(0, 6).join(", ")}` : ""}`.slice(
+        0,
+        1200,
+      );
+
+    let content = fallbackContent;
+    let model = "cortex-reading-digest-stub";
+    let confidence = 0.55;
+    let recurringOut = recurring;
+    let themes = tags.slice(0, 8);
+
+    if (openaiConfigured()) {
+      try {
+        const { text, model: m } = await chatJsonCompletion({
+          system: `You distill a week of ebook library activity into reflective interest JSON.
+Return ONLY JSON: {
+  "summary": string,
+  "themes": string[],
+  "recurring": string[],
+  "topics": string[],
+  "confidence": number
+}
+Rules:
+- Reading ≠ identity. Prefer themes over title dumps. summary under 400 chars.`,
+          user: `Week ${weekKey}\nTitles:\n${titles.slice(0, 30).join("\n")}\nTags: ${tags.slice(0, 20).join(", ")}\nAuthors: ${[...new Set(authors)].slice(0, 15).join(", ")}`.slice(
+            0,
+            6000,
+          ),
+          model: distillateModel(),
+        });
+        let parsed: Record<string, unknown> = {};
+        try {
+          parsed = JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          parsed = {};
+        }
+        const summary =
+          typeof parsed.summary === "string" && parsed.summary.trim()
+            ? parsed.summary.trim()
+            : fallbackContent;
+        themes = asStrings(parsed.themes).slice(0, 10);
+        recurringOut = asStrings(parsed.recurring).slice(0, 10);
+        const llmTopics = asStrings(parsed.topics)
+          .map((t) => normalizeTopic(t))
+          .filter(Boolean)
+          .slice(0, 8);
+        if (llmTopics.length) topics = llmTopics;
+        confidence =
+          typeof parsed.confidence === "number" ? parsed.confidence : 0.6;
+        content = [
+          summary,
+          themes.length ? `Themes: ${themes.join("; ")}` : "",
+          recurringOut.length ? `Recurring: ${recurringOut.join("; ")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+          .slice(0, 1600);
+        model = m;
+      } catch (err) {
+        console.warn(
+          "[reading-interest] LLM failed; stub:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    const row = await upsertDigest({
+      store: ctx.store,
+      dryRun: Boolean(ctx.dryRun),
+      subjectType: "week",
+      subjectId,
+      kind: "reading_interest_digest",
+      content,
+      domains: ["interest", "reference"],
+      sourceType: "calibre",
+      topics,
+      evidenceRefs: items.slice(0, 40).map((r) => ({
+        type: "record",
+        id: r.id,
+        recordType: r.recordType,
+        sourceRecordId: r.sourceRecordId,
+      })),
+      compilerVersion: READING_INTEREST_COMPILER,
+      sourceFingerprint: fingerprint,
+      model,
+      confidence,
+      extraMeta: {
+        weekKey,
+        periodStart: start,
+        periodEnd: end,
+        itemCount: items.length,
+        recurring: recurringOut,
+        themes,
+      },
+    });
+
+    return {
+      adapter: this.id,
+      dryRun: Boolean(ctx.dryRun),
+      scanned: items.length,
+      written: ctx.dryRun ? 0 : 1,
+      skipped: 0,
+      distillates: [row],
+    };
+  },
+};
+
 export const SOURCE_ADAPTERS: SourceAdapter[] = [
   emailThreadAdapter,
   githubOutcomeAdapter,
@@ -1686,6 +1899,7 @@ export const SOURCE_ADAPTERS: SourceAdapter[] = [
   driveFileAdapter,
   browserInterestAdapter,
   spotifyInterestAdapter,
+  readingInterestAdapter,
   youtubeInterestAdapter,
 ];
 
@@ -1701,12 +1915,13 @@ export const NIGHTLY_ADAPTER_IDS = [
 export const WEEKLY_ADAPTER_IDS = [
   "browser-interest",
   "spotify-interest",
+  "reading-interest",
 ] as const;
 
 /**
  * Parse CORTEX_SOURCE_ADAPTERS enablement list.
  * Default: accepted post-gate adapters (email → github → calendar → drive →
- * browser → spotify). Override with env; set "none" to disable all.
+ * browser → spotify → reading). Override with env; set "none" to disable all.
  */
 export function enabledSourceAdapters(): string[] {
   const raw = process.env.CORTEX_SOURCE_ADAPTERS;
@@ -1718,6 +1933,7 @@ export function enabledSourceAdapters(): string[] {
       "drive-file",
       "browser-interest",
       "spotify-interest",
+      "reading-interest",
     ];
   }
   const trimmed = raw.trim();

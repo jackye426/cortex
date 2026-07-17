@@ -65,46 +65,116 @@ export async function getLatestPortrait(
   return versions[0] ?? null;
 }
 
+function asItemTexts(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim()) {
+      out.push(item.trim());
+      continue;
+    }
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const row = item as Record<string, unknown>;
+      const text =
+        (typeof row.statement === "string" && row.statement) ||
+        (typeof row.title === "string" && row.title) ||
+        (typeof row.text === "string" && row.text) ||
+        "";
+      if (text.trim()) out.push(text.trim());
+    }
+  }
+  return out.slice(0, 12);
+}
+
 /**
- * Build a versioned portrait from repeated evidence. Does not overwrite prior versions.
+ * Build a versioned portrait from structured self-model (v2) + supporting digests.
+ * Does not overwrite prior versions.
  */
 export async function refreshPortrait(
   store: CortexStore,
   options: PortraitOptions = {},
 ): Promise<PortraitResult> {
   const dryRun = Boolean(options.dryRun);
-  const [summaries, interests, decisions, briefs, d2] = await Promise.all([
-    store.listDistillates({ limit: 40, kinds: ["summary"] }),
-    store.listDistillates({
-      limit: 20,
-      kinds: ["youtube_interest_digest", "spotify_interest_digest"],
-    }),
-    store.listDistillates({ limit: 15, kinds: ["decision", "outcome"] }),
-    store.listDistillates({ limit: 10, kinds: ["project_brief"] }),
-    store.listDistillates({ limit: 3, kinds: ["priority_vs_actual"] }),
-  ]);
+  const [selfModels, summaries, interests, decisions, briefs, d2, diffs] =
+    await Promise.all([
+      store.listSelfModelVersions({ limit: 2 }),
+      store.listDistillates({ limit: 40, kinds: ["summary"] }),
+      store.listDistillates({
+        limit: 20,
+        kinds: [
+          "youtube_interest_digest",
+          "spotify_interest_digest",
+          "browser_interest_digest",
+          "reading_interest_digest",
+          "interest_map",
+        ],
+      }),
+      store.listDistillates({ limit: 15, kinds: ["decision", "outcome"] }),
+      store.listDistillates({ limit: 10, kinds: ["project_brief"] }),
+      store.listDistillates({ limit: 3, kinds: ["priority_vs_actual"] }),
+      store.listSelfModelDiffs({ limit: 1 }),
+    ]);
+
+  const latestModel = selfModels[0] ?? null;
+  const latestDiff = diffs[0] ?? null;
+
+  const structuredFromModel = latestModel
+    ? {
+        strengths: asItemTexts(latestModel.strengths),
+        weaknesses: asItemTexts(latestModel.limitations),
+        explorationAreas: asItemTexts(latestModel.identityDevelopment),
+        tendencies: asItemTexts(latestModel.motives),
+        frameworks: [],
+        contradictions: asItemTexts(latestModel.tensions),
+        coverage: `self-model-v${latestModel.version}`,
+        summary: latestModel.summary || "Portrait from structured self-model.",
+        evidenceRefs: [
+          ...(Array.isArray(latestModel.compiledFrom.hypothesisIds)
+            ? latestModel.compiledFrom.hypothesisIds.map(String)
+            : []),
+          ...summaries.slice(0, 5).map((d) => d.id),
+        ].slice(0, 20),
+        selfModelVersionId: latestModel.id,
+        selfModelVersion: latestModel.version,
+        sinceLastPortrait: latestDiff
+          ? {
+              emerging: latestDiff.emerging,
+              fading: latestDiff.fading,
+              stable: latestDiff.stable,
+            }
+          : null,
+      }
+    : null;
 
   const evidenceBlock = [
+    latestModel
+      ? `Structured self-model v${latestModel.version}:\n${latestModel.summary}\nStrengths: ${asItemTexts(latestModel.strengths).join("; ")}\nLimitations: ${asItemTexts(latestModel.limitations).join("; ")}\nMotives: ${asItemTexts(latestModel.motives).join("; ")}\nTensions: ${asItemTexts(latestModel.tensions).join("; ")}`
+      : "No structured self-model yet.",
+    latestDiff
+      ? `Since prior version — emerging: ${JSON.stringify(latestDiff.emerging).slice(0, 300)}; fading: ${JSON.stringify(latestDiff.fading).slice(0, 300)}`
+      : "",
     "Session summaries:",
-    ...summaries.slice(0, 20).map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 180)}`),
+    ...summaries.slice(0, 12).map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 160)}`),
     "Interest digests:",
-    ...interests.map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 180)}`),
+    ...interests.map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 160)}`),
     "Decisions/outcomes:",
-    ...decisions.map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 160)}`),
+    ...decisions.map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 140)}`),
     "Briefs:",
-    ...briefs.map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 140)}`),
+    ...briefs.map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 120)}`),
     "Priority vs actual:",
-    ...d2.map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 200)}`),
-  ].join("\n");
+    ...d2.map((d) => `- ${d.id}: ${(d.content ?? "").slice(0, 160)}`),
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   let content: string;
-  let structured: Record<string, unknown> = {};
-  let model = "cortex-portrait-stub";
+  let structured: Record<string, unknown> = structuredFromModel ?? {};
+  let model = "cortex-portrait-v2-stub";
 
   if (openaiConfigured() && !dryRun) {
     try {
       const { text, model: m } = await chatJsonCompletion({
-        system: `Synthesize a versioned self-portrait JSON from evidence.
+        system: `Synthesize a versioned self-portrait JSON from the structured self-model and evidence.
 Return ONLY JSON: {
   strengths: string[],
   weaknesses: string[],
@@ -114,39 +184,47 @@ Return ONLY JSON: {
   contradictions: string[],
   coverage: string,
   summary: string,
-  evidenceRefs: string[]
+  evidenceRefs: string[],
+  deltaSinceLast: string
 }
-Rules: every non-empty list item must be grounded; prefer recurring multi-window evidence; label weak items carefully; include coverage limitations.`,
+Rules: prefer structured self-model fields over free invention; every non-empty list item must be grounded; include coverage limitations; deltaSinceLast should cite emerging/fading when provided.`,
         user: evidenceBlock.slice(0, 20000),
         model: distillateModel(),
       });
       model = m;
-      structured = JSON.parse(text) as Record<string, unknown>;
-      content =
-        typeof structured.summary === "string"
-          ? structured.summary
-          : "Portrait snapshot.";
-    } catch {
-      content = `Portrait heuristic. Sessions=${summaries.length}; interests=${interests.length}; decisions=${decisions.length}.`;
+      const parsed = JSON.parse(text) as Record<string, unknown>;
       structured = {
+        ...(structuredFromModel ?? {}),
+        ...parsed,
+        selfModelVersionId: latestModel?.id ?? null,
+        selfModelVersion: latestModel?.version ?? null,
+        sinceLastPortrait: structuredFromModel?.sinceLastPortrait ?? null,
+      };
+      content =
+        typeof parsed.summary === "string"
+          ? parsed.summary
+          : structuredFromModel?.summary ?? "Portrait snapshot.";
+    } catch {
+      content =
+        structuredFromModel?.summary ??
+        `Portrait heuristic. Sessions=${summaries.length}; interests=${interests.length}; decisions=${decisions.length}.`;
+      structured = structuredFromModel ?? {
         strengths: [],
         weaknesses: [],
-        explorationAreas: interests
-          .flatMap((d) =>
-            Array.isArray(d.metadata.topics) ? d.metadata.topics : [],
-          )
-          .filter((x): x is string => typeof x === "string")
-          .slice(0, 8),
+        explorationAreas: [],
         tendencies: [],
         frameworks: [],
         contradictions: [],
         coverage: "heuristic-fallback",
         evidenceRefs: [...summaries, ...interests].slice(0, 10).map((d) => d.id),
       };
+      model = "cortex-portrait-v2-heuristic";
     }
   } else {
-    content = `Portrait heuristic. Sessions=${summaries.length}; interests=${interests.length}.`;
-    structured = {
+    content =
+      structuredFromModel?.summary ??
+      `Portrait heuristic. Sessions=${summaries.length}; interests=${interests.length}.`;
+    structured = structuredFromModel ?? {
       strengths: [],
       weaknesses: [],
       explorationAreas: [],
@@ -182,10 +260,11 @@ Rules: every non-empty list item must be grounded; prefer recurring multi-window
       supersedesId: latest?.id ?? null,
       /** Stronger than ordinary distillates — see mirror-privilege-plan. */
       sensitivity: "reflective_sensitive",
-      evidenceClasses: ["distillate"],
+      evidenceClasses: ["distillate", "self_model_version"],
       excludesBrokerExcerpts: true,
       ...structured,
       twin: "portrait",
+      portraitFromSelfModel: Boolean(latestModel),
     },
   };
 

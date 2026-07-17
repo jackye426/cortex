@@ -15,6 +15,7 @@
     "youtube-digest": "tsx src/youtube-digest-cli.ts",
     "source-adapter": "tsx src/source-adapter-cli.ts",
     "quality-gate": "tsx src/quality-gate-cli.ts",
+    "intrapersonal-metrics": "tsx src/intrapersonal-metrics-cli.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {

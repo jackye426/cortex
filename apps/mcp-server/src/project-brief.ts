@@ -548,127 +548,34 @@ export async function stubPriorityVsActual(
 }
 
 /**
- * D4: theory-of-self distillate from D2/D3 evidence.
+ * D4 / I3: theory-of-self via versioned self-model v2 compiler.
+ * Returns the search-projection distillate (kind=self_model).
  */
 export async function refreshSelfModel(
   store: CortexStore,
   options: { dryRun?: boolean } = {},
 ): Promise<DistillateRow> {
-  const dryRun = Boolean(options.dryRun);
-  const [d2rows, decisions, outcomes, briefs] = await Promise.all([
-    store.listDistillates({ limit: 3, kinds: ["priority_vs_actual"] }),
-    store.listDistillates({ limit: 15, kinds: ["decision"] }),
-    store.listDistillates({ limit: 15, kinds: ["outcome"] }),
-    store.listDistillates({ limit: 8, kinds: ["project_brief"] }),
-  ]);
-
-  const d2 = d2rows[0];
-  const decisionLines = [...decisions, ...outcomes]
-    .slice(0, 10)
-    .map((d) => `- [${d.kind}] ${(d.content ?? "").slice(0, 160)}`);
-  const briefLines = briefs
-    .slice(0, 5)
-    .map(
-      (b) =>
-        `- ${String(b.metadata.projectKey ?? b.subjectId)}: ${(b.content ?? "").slice(0, 120)}`,
-    );
-
-  let content: string;
-  let model: string;
-
-  const evidence = [
-    d2?.content ? `D2: ${d2.content}` : "D2: no priority_vs_actual yet.",
-    decisionLines.length
-      ? `D3:\n${decisionLines.join("\n")}`
-      : "D3: no decisions/outcomes captured.",
-    briefLines.length
-      ? `Briefs:\n${briefLines.join("\n")}`
-      : "Briefs: none yet.",
-  ].join("\n\n");
-
-  if (openaiConfigured() && !dryRun) {
-    try {
-      const { text, model: m } = await chatJsonCompletion({
-        system:
-          "Write a concise theory-of-self JSON: { hypotheses: string[], failureModes: string[], leverageBets: string[] }. Ground only in evidence.",
-        user: evidence.slice(0, 12000),
-        model: distillateModel(),
-      });
-      model = m;
-      try {
-        const parsed = JSON.parse(text) as {
-          hypotheses?: string[];
-          failureModes?: string[];
-          leverageBets?: string[];
-        };
-        content = [
-          "Self-model (D4).",
-          parsed.hypotheses?.length
-            ? `Hypotheses: ${parsed.hypotheses.join("; ")}`
-            : "",
-          parsed.failureModes?.length
-            ? `Failure modes: ${parsed.failureModes.join("; ")}`
-            : "",
-          parsed.leverageBets?.length
-            ? `Leverage: ${parsed.leverageBets.join("; ")}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
-      } catch {
-        content = text.slice(0, 4000);
-      }
-    } catch {
-      content = `Self-model (D4) heuristic. ${evidence.slice(0, 2000)}`;
-      model = "cortex-self-model-stub";
-    }
-  } else {
-    content = [
-      "Self-model (D4) heuristic.",
-      d2?.content ?? "No week attribution yet — run priority_vs_actual.",
-      decisionLines.length
-        ? `Recent decisions/outcomes (${decisionLines.length}).`
-        : "No decision captures yet.",
-      briefLines.length
-        ? `Active briefs: ${briefs
-            .map((b) => String(b.metadata.projectKey ?? ""))
-            .filter(Boolean)
-            .join(", ")}.`
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    model = "cortex-self-model-stub";
-  }
-
-  const subjectId = "00000000-0000-4000-8000-0000000000d4";
-  const { embedding, embeddingRef } =
-    !dryRun && openaiConfigured()
-      ? await maybeEmbedContent(content)
-      : { embedding: null, embeddingRef: null };
-
-  const draft = {
+  const { compileSelfModelVersion } = await import(
+    "./intrapersonal/self-model-v2.js"
+  );
+  const result = await compileSelfModelVersion(store, {
+    dryRun: options.dryRun,
+  });
+  if (result.distillate) return result.distillate;
+  const now = new Date().toISOString();
+  return {
+    id: "dry-run",
     subjectType: "self",
-    subjectId,
+    subjectId: "00000000-0000-4000-8000-0000000000d4",
     kind: "self_model",
-    content,
-    embeddingRef,
-    embedding,
-    model,
-    metadata: {
-      twin: "D4",
-      fromPriorityVsActualId: d2?.id ?? null,
-      decisionIds: decisions.map((d) => d.id),
-      outcomeIds: outcomes.map((d) => d.id),
-      briefIds: briefs.map((b) => b.id),
-    },
+    content: result.version?.summary ?? "Self-model v2 empty.",
+    embeddingRef: null,
+    embedding: null,
+    model: "self-model-v2",
+    metadata: { twin: "I3", structured: true },
+    createdAt: now,
+    updatedAt: now,
   };
-
-  if (dryRun) {
-    const now = new Date().toISOString();
-    return { id: "dry-run", ...draft, createdAt: now, updatedAt: now };
-  }
-  return store.upsertDistillate(draft);
 }
 
 /** @deprecated use refreshSelfModel */

@@ -1,5 +1,83 @@
 /** Shared shapes for MCP tool backends (Supabase or fixture mode). */
 
+import type {
+  AffectSignalRow,
+  ClaimEvidenceRow,
+  DecisionOutcomeRow,
+  DecisionRow,
+  ExperimentRow,
+  HypothesisRow,
+  InsertAffectSignalInput,
+  InsertClaimEvidenceInput,
+  InsertDecisionOutcomeInput,
+  InsertInsightVerdictInput,
+  InsertSelfModelDiffInput,
+  InsertSelfModelVersionInput,
+  InsightVerdictRow,
+  InterestRow,
+  IntrapersonalRecordRow,
+  ListDecisionsOptions,
+  ListExperimentsOptions,
+  ListHypothesesOptions,
+  ListInsightVerdictsOptions,
+  ListInterestsOptions,
+  ListIntrapersonalRecordsOptions,
+  ListObservationsOptions,
+  ListPredictionEventsOptions,
+  ListSelfModelDiffsOptions,
+  ListSelfModelVersionsOptions,
+  ObservationRow,
+  PredictionEventRow,
+  SelfModelDiffRow,
+  SelfModelVersionRow,
+  UpsertDecisionInput,
+  UpsertExperimentInput,
+  UpsertHypothesisInput,
+  UpsertInterestInput,
+  UpsertIntrapersonalRecordInput,
+  UpsertObservationInput,
+  UpsertPredictionEventInput,
+} from "../intrapersonal/types.js";
+
+export type {
+  AffectSignalRow,
+  ClaimEvidenceRow,
+  DecisionOutcomeRow,
+  DecisionRow,
+  ExperimentRow,
+  HypothesisRow,
+  InsertAffectSignalInput,
+  InsertClaimEvidenceInput,
+  InsertDecisionOutcomeInput,
+  InsertInsightVerdictInput,
+  InsertSelfModelDiffInput,
+  InsertSelfModelVersionInput,
+  InsightVerdictRow,
+  InterestRow,
+  IntrapersonalRecordRow,
+  ListDecisionsOptions,
+  ListExperimentsOptions,
+  ListHypothesesOptions,
+  ListInsightVerdictsOptions,
+  ListInterestsOptions,
+  ListIntrapersonalRecordsOptions,
+  ListObservationsOptions,
+  ListPredictionEventsOptions,
+  ListSelfModelDiffsOptions,
+  ListSelfModelVersionsOptions,
+  ObservationRow,
+  PredictionEventRow,
+  SelfModelDiffRow,
+  SelfModelVersionRow,
+  UpsertDecisionInput,
+  UpsertExperimentInput,
+  UpsertHypothesisInput,
+  UpsertInterestInput,
+  UpsertIntrapersonalRecordInput,
+  UpsertObservationInput,
+  UpsertPredictionEventInput,
+};
+
 export interface RecordHit {
   id: string;
   sourceId: string;
@@ -312,4 +390,88 @@ export interface CortexStore {
   upsertEntity(input: UpsertEntityInput): Promise<EntityRow>;
   linkEntity(input: LinkEntityInput): Promise<EntityLinkRow>;
   listEntityLinks(entityId: string): Promise<EntityLinkRow[]>;
+  /** Durable factual intrapersonal atoms (I1). */
+  upsertObservation(input: UpsertObservationInput): Promise<ObservationRow>;
+  listObservations(options?: ListObservationsOptions): Promise<ObservationRow[]>;
+  /** Interest entities (I2). */
+  upsertInterest(input: UpsertInterestInput): Promise<InterestRow>;
+  listInterests(options?: ListInterestsOptions): Promise<InterestRow[]>;
+  /** Affect proxies / reflections (I2). */
+  insertAffectSignal(input: InsertAffectSignalInput): Promise<AffectSignalRow>;
+  listAffectSignals(options?: {
+    limit?: number;
+    signalType?: string;
+    since?: string;
+  }): Promise<AffectSignalRow[]>;
+
+  /** Hypothesis ledger (I3). */
+  upsertHypothesis(input: UpsertHypothesisInput): Promise<HypothesisRow>;
+  getHypothesis(id: string): Promise<HypothesisRow | null>;
+  listHypotheses(options?: ListHypothesesOptions): Promise<HypothesisRow[]>;
+
+  /** Typed self-model atoms (I3). */
+  upsertIntrapersonalRecord(
+    input: UpsertIntrapersonalRecordInput,
+  ): Promise<IntrapersonalRecordRow>;
+  listIntrapersonalRecords(
+    options?: ListIntrapersonalRecordsOptions,
+  ): Promise<IntrapersonalRecordRow[]>;
+
+  /** Versioned self-model (I3). */
+  insertSelfModelVersion(
+    input: InsertSelfModelVersionInput,
+  ): Promise<SelfModelVersionRow>;
+  listSelfModelVersions(
+    options?: ListSelfModelVersionsOptions,
+  ): Promise<SelfModelVersionRow[]>;
+  getLatestSelfModelVersion(): Promise<SelfModelVersionRow | null>;
+
+  /** User insight verdicts for VIR (I3/I6). */
+  insertInsightVerdict(
+    input: InsertInsightVerdictInput,
+  ): Promise<InsightVerdictRow>;
+  listInsightVerdicts(
+    options?: ListInsightVerdictsOptions,
+  ): Promise<InsightVerdictRow[]>;
+
+  /** Claim evidence join (I1/I3). */
+  insertClaimEvidence(
+    input: InsertClaimEvidenceInput,
+  ): Promise<ClaimEvidenceRow>;
+  listClaimEvidence(options?: {
+    claimId?: string;
+    claimKind?: string;
+    limit?: number;
+  }): Promise<ClaimEvidenceRow[]>;
+
+  /** Decisions + outcomes (I4). */
+  upsertDecision(input: UpsertDecisionInput): Promise<DecisionRow>;
+  listDecisionsTable(options?: ListDecisionsOptions): Promise<DecisionRow[]>;
+  insertDecisionOutcome(
+    input: InsertDecisionOutcomeInput,
+  ): Promise<DecisionOutcomeRow>;
+  listDecisionOutcomes(options?: {
+    decisionId?: string;
+    limit?: number;
+  }): Promise<DecisionOutcomeRow[]>;
+
+  /** Experiments (I4). */
+  upsertExperiment(input: UpsertExperimentInput): Promise<ExperimentRow>;
+  listExperiments(options?: ListExperimentsOptions): Promise<ExperimentRow[]>;
+
+  /** Calibration prediction events (I4). */
+  upsertPredictionEvent(
+    input: UpsertPredictionEventInput,
+  ): Promise<PredictionEventRow>;
+  listPredictionEvents(
+    options?: ListPredictionEventsOptions,
+  ): Promise<PredictionEventRow[]>;
+
+  /** Longitudinal diffs (I5). */
+  insertSelfModelDiff(
+    input: InsertSelfModelDiffInput,
+  ): Promise<SelfModelDiffRow>;
+  listSelfModelDiffs(
+    options?: ListSelfModelDiffsOptions,
+  ): Promise<SelfModelDiffRow[]>;
 }

@@ -20,6 +20,15 @@ import {
   type SourceAdapterResult,
 } from "./source-adapters.js";
 import { isoWeekKey } from "./week-helpers.js";
+import { extractObservations } from "./intrapersonal/extract-observations.js";
+import { extractAffectProxies } from "./intrapersonal/affect.js";
+import { refreshInterestMap } from "./intrapersonal/interest-map.js";
+import { compileAbilityModel } from "./intrapersonal/ability-model.js";
+import { compileSelfModelVersion } from "./intrapersonal/self-model-v2.js";
+import { refreshWeeklyMirror } from "./intrapersonal/weekly-mirror.js";
+import { snapshotOpenQuestions } from "./intrapersonal/open-questions.js";
+import { compileSelfModelDiff } from "./intrapersonal/change-explain.js";
+import { detectCycles } from "./intrapersonal/cycles.js";
 
 export type TwinPipelineMode = "nightly" | "weekly" | "backfill";
 
@@ -61,6 +70,16 @@ export interface TwinPipelineResult {
     scanned: number;
     skippedSensitive?: number;
   }>;
+  observationsScanned?: number;
+  observationsWritten?: number;
+  affectWritten?: number;
+  interestMapWritten?: boolean;
+  interestsMined?: number;
+  abilityRecordsWritten?: number;
+  weeklyMirrorWritten?: boolean;
+  openQuestionsWritten?: boolean;
+  cyclesDetected?: number;
+  selfModelDiffWritten?: boolean;
 }
 
 async function runDistillateBatches(
@@ -217,6 +236,25 @@ export async function runTwinPipeline(
     `[twin-pipeline] seed-entities linked=${seed.linked} upserted=${seed.upserted.length}`,
   );
 
+  const observations = await extractObservations(store, {
+    dryRun,
+    limit: Math.max(batchSize * 2, 80),
+  });
+  out.observationsScanned = observations.scanned;
+  out.observationsWritten = observations.written;
+  console.info(
+    `[twin-pipeline] extract-observations scanned=${observations.scanned} written=${observations.written} skipped=${observations.skipped}`,
+  );
+
+  const affect = await extractAffectProxies(store, {
+    dryRun,
+    limit: Math.max(batchSize, 40),
+  });
+  out.affectWritten = affect.written;
+  console.info(
+    `[twin-pipeline] extract-affect scanned=${affect.scanned} written=${affect.written}`,
+  );
+
   if (mode === "weekly" || mode === "backfill") {
     const brief = await runProjectBriefJob(store, {
       dryRun,
@@ -247,16 +285,62 @@ export async function runTwinPipeline(
       })),
     ];
 
+    const interestMap = await refreshInterestMap(store, { dryRun });
+    out.interestMapWritten = interestMap.written;
+    out.interestsMined = interestMap.mined;
+    console.info(
+      `[twin-pipeline] interest-map week=${interestMap.weekKey} written=${interestMap.written} mined=${interestMap.mined}`,
+    );
+
     const pva = await runPriorityVsActual(store, { dryRun });
     out.priorityWeek = pva.weekKey;
     console.info(
       `[twin-pipeline] priority-vs-actual week=${pva.weekKey} rows=${pva.attribution.length}`,
     );
+
+    const ability = await compileAbilityModel(store, { dryRun });
+    out.abilityRecordsWritten = ability.written;
+    console.info(
+      `[twin-pipeline] ability-model strengths=${ability.strengths.length} limitations=${ability.limitations.length} written=${ability.written}`,
+    );
+
+    const cycles = await detectCycles(store, { dryRun });
+    out.cyclesDetected = cycles.cycles.length;
+    console.info(
+      `[twin-pipeline] cycles detected=${cycles.cycles.length} hypotheses=${cycles.hypotheses.length}`,
+    );
+
     if (!dryRun) {
-      await refreshSelfModel(store, { dryRun: false });
-      out.selfModelUpdated = true;
-      console.info("[twin-pipeline] self-model refreshed");
+      const selfModel = await compileSelfModelVersion(store, {
+        dryRun: false,
+        skipAbility: true,
+      });
+      out.selfModelUpdated = selfModel.written;
+      console.info(
+        `[twin-pipeline] self-model v2 version=${selfModel.version?.version ?? "?"}`,
+      );
+      const diff = await compileSelfModelDiff(store, { dryRun: false });
+      out.selfModelDiffWritten = Boolean(diff);
+      console.info(
+        `[twin-pipeline] self-model-diff written=${Boolean(diff)} id=${diff?.id ?? "none"}`,
+      );
+    } else {
+      await refreshSelfModel(store, { dryRun: true });
+      out.selfModelUpdated = false;
     }
+
+    const weeklyMirror = await refreshWeeklyMirror(store, { dryRun });
+    out.weeklyMirrorWritten = weeklyMirror.written;
+    console.info(
+      `[twin-pipeline] weekly-mirror week=${weeklyMirror.weekKey} cards=${weeklyMirror.mirror.cards.length} written=${weeklyMirror.written}`,
+    );
+
+    const openQ = await snapshotOpenQuestions(store, { dryRun });
+    out.openQuestionsWritten = openQ.written;
+    console.info(
+      `[twin-pipeline] open-questions items=${openQ.payload.items.length} written=${openQ.written}`,
+    );
+
     if (options.portrait !== false) {
       const portrait = await refreshPortrait(store, { dryRun });
       out.portraitWritten = portrait.written;

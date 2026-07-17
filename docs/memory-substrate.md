@@ -73,6 +73,8 @@ pnpm source-adapter -- --adapter=email-thread --dry-run
 - Keyword-only record hits are weaker than embedded distillates.
 - YouTube (and later media) digests are required for semantic cross-source comparison.
 - Other sources remain keyword-retrievable until their adapters are enabled.
+- **I1 evidence integrity:** reflective/both `ask_mirror` uses source-balanced retrieval; assistant-derived kinds (`portrait`, `self_model`, …) are down-ranked; material claims need provenance. Durable facts land in `observations` (see [intrapersonal-roadmap.md](intrapersonal-roadmap.md)).
+- Audit: MCP `audit_source_coverage` / `POST /v1/audit/source-coverage`. Insight fixtures: `pnpm quality-gate -- --suite=insight`.
 
 ## Migration
 

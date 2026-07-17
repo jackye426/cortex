@@ -21,6 +21,7 @@
     "youtube-digest": "pnpm --filter @cortex/mcp-server youtube-digest",
     "source-adapter": "pnpm --filter @cortex/mcp-server source-adapter",
     "quality-gate": "pnpm --filter @cortex/mcp-server quality-gate",
+    "intrapersonal-metrics": "pnpm --filter @cortex/mcp-server intrapersonal-metrics",
     "test:mcp": "pnpm --filter @cortex/mcp-server test",
     "mirror": "pnpm --filter @cortex/openai-mirror start",
     "mirror:tools": "pnpm --filter @cortex/openai-mirror tools",

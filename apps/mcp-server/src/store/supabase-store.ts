@@ -32,28 +32,77 @@ import {
   sessionToRecent,
 } from "./fixtures.js";
 import type {
+  AffectSignalRow,
   CalendarEventItem,
   CalendarStructureItem,
+  ClaimEvidenceRow,
   CortexStore,
+  DecisionOutcomeRow,
+  DecisionRow,
   DistillateRow,
   EmailThread,
   EntityLinkRow,
   EntityRow,
+  ExperimentRow,
   FileSummary,
+  HypothesisRow,
+  InsertAffectSignalInput,
+  InsertClaimEvidenceInput,
+  InsertDecisionOutcomeInput,
+  InsertInsightVerdictInput,
+  InsertSelfModelDiffInput,
+  InsertSelfModelVersionInput,
+  InsightVerdictRow,
+  InterestRow,
+  IntrapersonalRecordRow,
   LinkEntityInput,
+  ListDecisionsOptions,
+  ListExperimentsOptions,
+  ListHypothesesOptions,
+  ListInsightVerdictsOptions,
+  ListInterestsOptions,
+  ListIntrapersonalRecordsOptions,
+  ListObservationsOptions,
+  ListPredictionEventsOptions,
   ListRecentWorkOptions,
+  ListSelfModelDiffsOptions,
+  ListSelfModelVersionsOptions,
   MemorySearchHit,
   MemorySearchOptions,
   MemorySearchResult,
+  ObservationRow,
+  PredictionEventRow,
   RecentWorkItem,
   RecordHit,
   SearchRecordsOptions,
   SearchRecordsResult,
+  SelfModelDiffRow,
+  SelfModelVersionRow,
   SessionDetail,
   SessionEnvelopeInput,
   StoreCredential,
+  UpsertDecisionInput,
   UpsertEntityInput,
+  UpsertExperimentInput,
+  UpsertHypothesisInput,
+  UpsertInterestInput,
+  UpsertIntrapersonalRecordInput,
+  UpsertObservationInput,
+  UpsertPredictionEventInput,
 } from "./types.js";
+import type {
+  AffectSignalType,
+  EvidenceSupportKind,
+  ExperimentResultPolarity,
+  ExperimentStatus,
+  HypothesisState,
+  InsightVerdictValue,
+  InterestClass,
+  InterestStatus,
+  IntrapersonalRecordStatus,
+  SelfModelItem,
+  SourceFamily,
+} from "../intrapersonal/types.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -71,6 +120,370 @@ function mapRecord(row: Record<string, unknown>): RecordHit {
     contentHash: String(row.content_hash ?? ""),
     occurredAt:
       typeof row.occurred_at === "string" ? row.occurred_at : null,
+  };
+}
+
+function mapObservation(row: Record<string, unknown>): ObservationRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    epistemicType:
+      row.epistemic_type === "self_report" ? "self_report" : "observation",
+    statement: String(row.statement ?? ""),
+    sourceFamily: String(row.source_family ?? "other") as SourceFamily,
+    independenceGroup: String(row.independence_group ?? "other"),
+    occurredAt: typeof row.occurred_at === "string" ? row.occurred_at : null,
+    capturedAt:
+      typeof row.captured_at === "string"
+        ? row.captured_at
+        : new Date().toISOString(),
+    recordId: typeof row.record_id === "string" ? row.record_id : null,
+    distillateId:
+      typeof row.distillate_id === "string" ? row.distillate_id : null,
+    sessionId: typeof row.session_id === "string" ? row.session_id : null,
+    supportKind: String(
+      row.support_kind ?? "direct_observation",
+    ) as EvidenceSupportKind,
+    confidence:
+      typeof row.confidence === "number" ? row.confidence : Number(row.confidence) || 0.5,
+    metadata: asRecord(row.metadata),
+    contentHash: String(row.content_hash ?? ""),
+  };
+}
+
+function mapInterest(row: Record<string, unknown>): InterestRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    canonicalKey: String(row.canonical_key ?? ""),
+    displayName: String(row.display_name ?? row.canonical_key ?? ""),
+    class: String(row.class ?? "situational") as InterestClass,
+    status: String(row.status ?? "active") as InterestStatus,
+    confidence:
+      typeof row.confidence === "number" ? row.confidence : Number(row.confidence) || 0.5,
+    summary: String(row.summary ?? ""),
+    firstSeenAt:
+      typeof row.first_seen_at === "string" ? row.first_seen_at : null,
+    lastActiveAt:
+      typeof row.last_active_at === "string" ? row.last_active_at : null,
+    recurrenceScore:
+      typeof row.recurrence_score === "number" ? row.recurrence_score : 0,
+    specificityScore:
+      typeof row.specificity_score === "number" ? row.specificity_score : 0,
+    voluntaryReturnScore:
+      typeof row.voluntary_return_score === "number"
+        ? row.voluntary_return_score
+        : 0,
+    persistenceAfterUtility:
+      typeof row.persistence_after_utility === "number"
+        ? row.persistence_after_utility
+        : 0,
+    energyDelta:
+      typeof row.energy_delta === "number" ? row.energy_delta : null,
+    metadata: asRecord(row.metadata),
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+    updatedAt:
+      typeof row.updated_at === "string"
+        ? row.updated_at
+        : new Date().toISOString(),
+  };
+}
+
+function mapAffectSignal(row: Record<string, unknown>): AffectSignalRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    signalType: String(row.signal_type ?? "energy") as AffectSignalType,
+    value: typeof row.value === "number" ? row.value : Number(row.value) || 0,
+    sourceFamily: String(row.source_family ?? "other") as SourceFamily,
+    observationId:
+      typeof row.observation_id === "string" ? row.observation_id : null,
+    context: asRecord(row.context),
+    occurredAt: typeof row.occurred_at === "string" ? row.occurred_at : null,
+    captureMode:
+      row.capture_mode === "self_report" ? "self_report" : "inferred",
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+  };
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((x): x is string => typeof x === "string");
+}
+
+function asItemArray(value: unknown): SelfModelItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+    .map((x) => ({
+      id: typeof x.id === "string" ? x.id : undefined,
+      title: String(x.title ?? ""),
+      statement: String(x.statement ?? ""),
+      confidence:
+        typeof x.confidence === "number" ? x.confidence : Number(x.confidence) || 0.5,
+      evidenceIds: asStringArray(x.evidenceIds ?? x.evidence_ids),
+      hypothesisId:
+        typeof x.hypothesisId === "string"
+          ? x.hypothesisId
+          : typeof x.hypothesis_id === "string"
+            ? x.hypothesis_id
+            : null,
+      recordId:
+        typeof x.recordId === "string"
+          ? x.recordId
+          : typeof x.record_id === "string"
+            ? x.record_id
+            : null,
+      domains: asStringArray(x.domains),
+      status: typeof x.status === "string" ? x.status : undefined,
+    }));
+}
+
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (x): x is Record<string, unknown> => !!x && typeof x === "object",
+  );
+}
+
+function mapHypothesis(row: Record<string, unknown>): HypothesisRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    claim: String(row.claim ?? ""),
+    whyItMatters: String(row.why_it_matters ?? ""),
+    state: String(row.state ?? "emerging") as HypothesisState,
+    confidence:
+      typeof row.confidence === "number" ? row.confidence : Number(row.confidence) || 0.4,
+    sourceDiversity:
+      typeof row.source_diversity === "number" ? row.source_diversity : 0,
+    falsifiers: asStringArray(row.falsifiers),
+    alternativeExplanations: asStringArray(row.alternative_explanations),
+    domains: asStringArray(row.domains),
+    lastTestedAt:
+      typeof row.last_tested_at === "string" ? row.last_tested_at : null,
+    origin: String(row.origin ?? "ask_mirror"),
+    assistantWeight:
+      typeof row.assistant_weight === "number" ? row.assistant_weight : 0.5,
+    priorHypothesisId:
+      typeof row.prior_hypothesis_id === "string"
+        ? row.prior_hypothesis_id
+        : null,
+    metadata: asRecord(row.metadata),
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+    updatedAt:
+      typeof row.updated_at === "string"
+        ? row.updated_at
+        : new Date().toISOString(),
+  };
+}
+
+function mapIntrapersonalRecord(
+  row: Record<string, unknown>,
+): IntrapersonalRecordRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    recordKind: String(row.record_kind ?? "motive"),
+    title: String(row.title ?? ""),
+    statement: String(row.statement ?? ""),
+    epistemicType: String(row.epistemic_type ?? "interpretation"),
+    confidence:
+      typeof row.confidence === "number" ? row.confidence : Number(row.confidence) || 0.5,
+    status: String(row.status ?? "active") as IntrapersonalRecordStatus,
+    context: asRecord(row.context),
+    behaviour: asRecord(row.behaviour),
+    outcome: asRecord(row.outcome),
+    origin: String(row.origin ?? "inference"),
+    hypothesisId:
+      typeof row.hypothesis_id === "string" ? row.hypothesis_id : null,
+    interestId: typeof row.interest_id === "string" ? row.interest_id : null,
+    metadata: asRecord(row.metadata),
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+    updatedAt:
+      typeof row.updated_at === "string"
+        ? row.updated_at
+        : new Date().toISOString(),
+  };
+}
+
+function mapSelfModelVersion(row: Record<string, unknown>): SelfModelVersionRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    version: typeof row.version === "number" ? row.version : Number(row.version) || 1,
+    summary: String(row.summary ?? ""),
+    compiledFrom: asRecord(row.compiled_from),
+    strengths: asItemArray(row.strengths),
+    limitations: asItemArray(row.limitations),
+    motives: asItemArray(row.motives),
+    tensions: asItemArray(row.tensions),
+    identityDevelopment: asItemArray(row.identity_development),
+    openQuestionIds: asStringArray(row.open_question_ids),
+    supersedesId:
+      typeof row.supersedes_id === "string" ? row.supersedes_id : null,
+    userCorrections: asRecordArray(row.user_corrections),
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+  };
+}
+
+function mapInsightVerdict(row: Record<string, unknown>): InsightVerdictRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    insightId: String(row.insight_id),
+    insightKind: String(row.insight_kind ?? "hypothesis"),
+    verdict: String(row.verdict ?? "confirm") as InsightVerdictValue,
+    note: typeof row.note === "string" ? row.note : null,
+    nonObvious:
+      typeof row.non_obvious === "boolean" ? row.non_obvious : null,
+    useful: typeof row.useful === "boolean" ? row.useful : null,
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+  };
+}
+
+function mapClaimEvidence(row: Record<string, unknown>): ClaimEvidenceRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    claimId: String(row.claim_id),
+    claimKind: String(row.claim_kind ?? "hypothesis"),
+    observationId:
+      typeof row.observation_id === "string" ? row.observation_id : null,
+    evidence: asRecord(row.evidence),
+    polarity: row.polarity === "contradicts" ? "contradicts" : "supports",
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+  };
+}
+
+function mapDecision(row: Record<string, unknown>): DecisionRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    title: String(row.title ?? ""),
+    statement: String(row.statement ?? ""),
+    decidedAt:
+      typeof row.decided_at === "string"
+        ? row.decided_at
+        : new Date().toISOString(),
+    expectedOutcome:
+      typeof row.expected_outcome === "string" ? row.expected_outcome : null,
+    relatedHypothesisIds: asStringArray(row.related_hypothesis_ids),
+    relatedEntityKeys: asStringArray(row.related_entity_keys),
+    source: String(row.source ?? "user"),
+    distillateId:
+      typeof row.distillate_id === "string" ? row.distillate_id : null,
+    metadata: asRecord(row.metadata),
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+  };
+}
+
+function mapDecisionOutcome(row: Record<string, unknown>): DecisionOutcomeRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    decisionId: String(row.decision_id),
+    recordedAt:
+      typeof row.recorded_at === "string"
+        ? row.recorded_at
+        : new Date().toISOString(),
+    actualOutcome: String(row.actual_outcome ?? ""),
+    alignedWithExpected:
+      typeof row.aligned_with_expected === "boolean"
+        ? row.aligned_with_expected
+        : null,
+    evidence: asRecordArray(row.evidence),
+    learning: typeof row.learning === "string" ? row.learning : null,
+    metadata: asRecord(row.metadata),
+  };
+}
+
+function mapExperiment(row: Record<string, unknown>): ExperimentRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    hypothesisId: String(row.hypothesis_id),
+    title: String(row.title ?? ""),
+    protocol: String(row.protocol ?? ""),
+    status: String(row.status ?? "proposed") as ExperimentStatus,
+    proposedAt:
+      typeof row.proposed_at === "string"
+        ? row.proposed_at
+        : new Date().toISOString(),
+    dueAt: typeof row.due_at === "string" ? row.due_at : null,
+    completedAt:
+      typeof row.completed_at === "string" ? row.completed_at : null,
+    resultSummary:
+      typeof row.result_summary === "string" ? row.result_summary : null,
+    resultPolarity: (row.result_polarity == null
+      ? null
+      : String(row.result_polarity)) as ExperimentResultPolarity | null,
+    evidence: asRecordArray(row.evidence),
+    metadata: asRecord(row.metadata),
+  };
+}
+
+function mapPredictionEvent(row: Record<string, unknown>): PredictionEventRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    claimId: String(row.claim_id),
+    claimKind: String(row.claim_kind ?? "hypothesis"),
+    domain: typeof row.domain === "string" ? row.domain : null,
+    predicted: String(row.predicted ?? ""),
+    actual: typeof row.actual === "string" ? row.actual : null,
+    correct: typeof row.correct === "boolean" ? row.correct : null,
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+    resolvedAt:
+      typeof row.resolved_at === "string" ? row.resolved_at : null,
+  };
+}
+
+function mapSelfModelDiff(row: Record<string, unknown>): SelfModelDiffRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    fromVersionId:
+      typeof row.from_version_id === "string" ? row.from_version_id : null,
+    toVersionId: String(row.to_version_id),
+    stable: asRecordArray(row.stable),
+    emerging: asRecordArray(row.emerging),
+    fading: asRecordArray(row.fading),
+    environmentShifts: asRecordArray(row.environment_shifts),
+    confirmedPredictions: asRecordArray(row.confirmed_predictions),
+    disprovedPredictions: asRecordArray(row.disproved_predictions),
+    eventAnchors: asRecordArray(row.event_anchors),
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
   };
 }
 
@@ -1390,6 +1803,908 @@ export class SupabaseStore implements CortexStore {
     }
     return (data ?? []).map((row) =>
       mapEntityLink(row as Record<string, unknown>),
+    );
+  }
+
+  async upsertObservation(
+    input: UpsertObservationInput,
+  ): Promise<ObservationRow> {
+    const now = new Date().toISOString();
+    const ownerId =
+      this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+    const payload = {
+      owner_id: ownerId,
+      epistemic_type: input.epistemicType,
+      statement: input.statement,
+      source_family: input.sourceFamily,
+      independence_group: input.independenceGroup,
+      occurred_at: input.occurredAt ?? null,
+      record_id: input.recordId ?? null,
+      distillate_id: input.distillateId ?? null,
+      session_id: input.sessionId ?? null,
+      support_kind: input.supportKind ?? "direct_observation",
+      confidence: input.confidence ?? 0.5,
+      metadata: input.metadata ?? {},
+      content_hash: input.contentHash,
+    };
+    const { data, error } = await this.client
+      .from("observations")
+      .upsert(payload, { onConflict: "owner_id,content_hash" })
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertObservation:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        epistemicType: input.epistemicType,
+        statement: input.statement,
+        sourceFamily: input.sourceFamily,
+        independenceGroup: input.independenceGroup,
+        occurredAt: input.occurredAt ?? null,
+        capturedAt: now,
+        recordId: input.recordId ?? null,
+        distillateId: input.distillateId ?? null,
+        sessionId: input.sessionId ?? null,
+        supportKind: input.supportKind ?? "direct_observation",
+        confidence: input.confidence ?? 0.5,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        contentHash: input.contentHash,
+      };
+    }
+    return mapObservation(data as Record<string, unknown>);
+  }
+
+  async listObservations(
+    options: ListObservationsOptions = {},
+  ): Promise<ObservationRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("observations")
+      .select("*")
+      .order("occurred_at", { ascending: false, nullsFirst: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.sourceFamily) {
+      q = q.eq("source_family", options.sourceFamily);
+    }
+    if (options.distillateId) {
+      q = q.eq("distillate_id", options.distillateId);
+    }
+    if (options.since) {
+      q = q.gte("occurred_at", options.since);
+    }
+    if (options.until) {
+      q = q.lte("occurred_at", options.until);
+    }
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listObservations:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapObservation(row as Record<string, unknown>),
+    );
+  }
+
+  async upsertInterest(input: UpsertInterestInput): Promise<InterestRow> {
+    const now = new Date().toISOString();
+    const ownerId =
+      this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+    const payload = {
+      owner_id: ownerId,
+      canonical_key: input.canonicalKey,
+      display_name: input.displayName ?? input.canonicalKey,
+      class: input.class,
+      status: input.status ?? "active",
+      confidence: input.confidence ?? 0.5,
+      summary: input.summary ?? "",
+      first_seen_at: input.firstSeenAt ?? null,
+      last_active_at: input.lastActiveAt ?? null,
+      recurrence_score: input.recurrenceScore ?? 0,
+      specificity_score: input.specificityScore ?? 0,
+      voluntary_return_score: input.voluntaryReturnScore ?? 0,
+      persistence_after_utility: input.persistenceAfterUtility ?? 0,
+      energy_delta: input.energyDelta ?? null,
+      metadata: input.metadata ?? {},
+      updated_at: now,
+    };
+    const { data, error } = await this.client
+      .from("interests")
+      .upsert(payload, { onConflict: "owner_id,canonical_key" })
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertInterest:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        canonicalKey: input.canonicalKey,
+        displayName: input.displayName ?? input.canonicalKey,
+        class: input.class,
+        status: input.status ?? "active",
+        confidence: input.confidence ?? 0.5,
+        summary: input.summary ?? "",
+        firstSeenAt: input.firstSeenAt ?? null,
+        lastActiveAt: input.lastActiveAt ?? null,
+        recurrenceScore: input.recurrenceScore ?? 0,
+        specificityScore: input.specificityScore ?? 0,
+        voluntaryReturnScore: input.voluntaryReturnScore ?? 0,
+        persistenceAfterUtility: input.persistenceAfterUtility ?? 0,
+        energyDelta: input.energyDelta ?? null,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+    return mapInterest(data as Record<string, unknown>);
+  }
+
+  async listInterests(
+    options: ListInterestsOptions = {},
+  ): Promise<InterestRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("interests")
+      .select("*")
+      .order("confidence", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.class) q = q.eq("class", options.class);
+    if (options.status) q = q.eq("status", options.status);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listInterests:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapInterest(row as Record<string, unknown>),
+    );
+  }
+
+  async insertAffectSignal(
+    input: InsertAffectSignalInput,
+  ): Promise<AffectSignalRow> {
+    const now = new Date().toISOString();
+    const ownerId =
+      this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+    const payload = {
+      owner_id: ownerId,
+      signal_type: input.signalType,
+      value: input.value,
+      source_family: input.sourceFamily,
+      observation_id: input.observationId ?? null,
+      context: input.context ?? {},
+      occurred_at: input.occurredAt ?? null,
+      capture_mode: input.captureMode ?? "inferred",
+    };
+    const { data, error } = await this.client
+      .from("affect_signals")
+      .insert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] insertAffectSignal:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        signalType: input.signalType,
+        value: input.value,
+        sourceFamily: input.sourceFamily,
+        observationId: input.observationId ?? null,
+        context: { ...(input.context ?? {}), writeError: error.message },
+        occurredAt: input.occurredAt ?? null,
+        captureMode: input.captureMode ?? "inferred",
+        createdAt: now,
+      };
+    }
+    return mapAffectSignal(data as Record<string, unknown>);
+  }
+
+  async listAffectSignals(options: {
+    limit?: number;
+    signalType?: string;
+    since?: string;
+  } = {}): Promise<AffectSignalRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("affect_signals")
+      .select("*")
+      .order("occurred_at", { ascending: false, nullsFirst: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.signalType) q = q.eq("signal_type", options.signalType);
+    if (options.since) q = q.gte("occurred_at", options.since);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listAffectSignals:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapAffectSignal(row as Record<string, unknown>),
+    );
+  }
+
+  private defaultOwnerId(): string {
+    return this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+  }
+
+  async upsertHypothesis(input: UpsertHypothesisInput): Promise<HypothesisRow> {
+    const now = new Date().toISOString();
+    const ownerId = this.defaultOwnerId();
+    const payload: Record<string, unknown> = {
+      owner_id: ownerId,
+      claim: input.claim,
+      why_it_matters: input.whyItMatters ?? "",
+      state: input.state ?? "emerging",
+      confidence: input.confidence ?? 0.4,
+      source_diversity: input.sourceDiversity ?? 0,
+      falsifiers: input.falsifiers ?? [],
+      alternative_explanations: input.alternativeExplanations ?? [],
+      domains: input.domains ?? [],
+      last_tested_at: input.lastTestedAt ?? null,
+      origin: input.origin ?? "user",
+      assistant_weight: input.assistantWeight ?? 0.5,
+      prior_hypothesis_id: input.priorHypothesisId ?? null,
+      metadata: input.metadata ?? {},
+      updated_at: now,
+    };
+    if (input.id) payload.id = input.id;
+    const { data, error } = await this.client
+      .from("hypotheses")
+      .upsert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertHypothesis:", error.message);
+      return {
+        id: input.id ?? "noop",
+        ownerId,
+        claim: input.claim,
+        whyItMatters: input.whyItMatters ?? "",
+        state: input.state ?? "emerging",
+        confidence: input.confidence ?? 0.4,
+        sourceDiversity: input.sourceDiversity ?? 0,
+        falsifiers: input.falsifiers ?? [],
+        alternativeExplanations: input.alternativeExplanations ?? [],
+        domains: input.domains ?? [],
+        lastTestedAt: input.lastTestedAt ?? null,
+        origin: input.origin ?? "user",
+        assistantWeight: input.assistantWeight ?? 0.5,
+        priorHypothesisId: input.priorHypothesisId ?? null,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+    return mapHypothesis(data as Record<string, unknown>);
+  }
+
+  async getHypothesis(id: string): Promise<HypothesisRow | null> {
+    let q = this.client.from("hypotheses").select("*").eq("id", id).limit(1);
+    q = this.applyOwner(q);
+    const { data, error } = await q.maybeSingle();
+    if (error) {
+      console.warn("[store/supabase] getHypothesis:", error.message);
+      return null;
+    }
+    return data ? mapHypothesis(data as Record<string, unknown>) : null;
+  }
+
+  async listHypotheses(
+    options: ListHypothesesOptions = {},
+  ): Promise<HypothesisRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("hypotheses")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.state) q = q.eq("state", options.state);
+    if (options.origin) q = q.eq("origin", options.origin);
+    if (options.minConfidence != null) {
+      q = q.gte("confidence", options.minConfidence);
+    }
+    if (options.domain) q = q.contains("domains", [options.domain]);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listHypotheses:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapHypothesis(row as Record<string, unknown>),
+    );
+  }
+
+  async upsertIntrapersonalRecord(
+    input: UpsertIntrapersonalRecordInput,
+  ): Promise<IntrapersonalRecordRow> {
+    const now = new Date().toISOString();
+    const ownerId = this.defaultOwnerId();
+    const payload: Record<string, unknown> = {
+      owner_id: ownerId,
+      record_kind: input.recordKind,
+      title: input.title,
+      statement: input.statement,
+      epistemic_type: input.epistemicType ?? "interpretation",
+      confidence: input.confidence ?? 0.5,
+      status: input.status ?? "active",
+      context: input.context ?? {},
+      behaviour: input.behaviour ?? {},
+      outcome: input.outcome ?? {},
+      origin: input.origin ?? "inference",
+      hypothesis_id: input.hypothesisId ?? null,
+      interest_id: input.interestId ?? null,
+      metadata: input.metadata ?? {},
+      updated_at: now,
+    };
+    if (input.id) payload.id = input.id;
+    const { data, error } = await this.client
+      .from("intrapersonal_records")
+      .upsert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn(
+        "[store/supabase] upsertIntrapersonalRecord:",
+        error.message,
+      );
+      return {
+        id: input.id ?? "noop",
+        ownerId,
+        recordKind: input.recordKind,
+        title: input.title,
+        statement: input.statement,
+        epistemicType: input.epistemicType ?? "interpretation",
+        confidence: input.confidence ?? 0.5,
+        status: input.status ?? "active",
+        context: input.context ?? {},
+        behaviour: input.behaviour ?? {},
+        outcome: input.outcome ?? {},
+        origin: input.origin ?? "inference",
+        hypothesisId: input.hypothesisId ?? null,
+        interestId: input.interestId ?? null,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+    return mapIntrapersonalRecord(data as Record<string, unknown>);
+  }
+
+  async listIntrapersonalRecords(
+    options: ListIntrapersonalRecordsOptions = {},
+  ): Promise<IntrapersonalRecordRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("intrapersonal_records")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.recordKind) q = q.eq("record_kind", options.recordKind);
+    if (options.status) q = q.eq("status", options.status);
+    if (options.hypothesisId) q = q.eq("hypothesis_id", options.hypothesisId);
+    const { data, error } = await q;
+    if (error) {
+      console.warn(
+        "[store/supabase] listIntrapersonalRecords:",
+        error.message,
+      );
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapIntrapersonalRecord(row as Record<string, unknown>),
+    );
+  }
+
+  async insertSelfModelVersion(
+    input: InsertSelfModelVersionInput,
+  ): Promise<SelfModelVersionRow> {
+    const ownerId = this.defaultOwnerId();
+    const payload = {
+      owner_id: ownerId,
+      version: input.version,
+      summary: input.summary,
+      compiled_from: input.compiledFrom ?? {},
+      strengths: input.strengths ?? [],
+      limitations: input.limitations ?? [],
+      motives: input.motives ?? [],
+      tensions: input.tensions ?? [],
+      identity_development: input.identityDevelopment ?? [],
+      open_question_ids: input.openQuestionIds ?? [],
+      supersedes_id: input.supersedesId ?? null,
+      user_corrections: input.userCorrections ?? [],
+    };
+    const { data, error } = await this.client
+      .from("self_model_versions")
+      .insert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] insertSelfModelVersion:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        version: input.version,
+        summary: input.summary,
+        compiledFrom: input.compiledFrom ?? {},
+        strengths: input.strengths ?? [],
+        limitations: input.limitations ?? [],
+        motives: input.motives ?? [],
+        tensions: input.tensions ?? [],
+        identityDevelopment: input.identityDevelopment ?? [],
+        openQuestionIds: input.openQuestionIds ?? [],
+        supersedesId: input.supersedesId ?? null,
+        userCorrections: input.userCorrections ?? [],
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return mapSelfModelVersion(data as Record<string, unknown>);
+  }
+
+  async listSelfModelVersions(
+    options: ListSelfModelVersionsOptions = {},
+  ): Promise<SelfModelVersionRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
+    let q = this.client
+      .from("self_model_versions")
+      .select("*")
+      .order("version", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listSelfModelVersions:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapSelfModelVersion(row as Record<string, unknown>),
+    );
+  }
+
+  async getLatestSelfModelVersion(): Promise<SelfModelVersionRow | null> {
+    const rows = await this.listSelfModelVersions({ limit: 1 });
+    return rows[0] ?? null;
+  }
+
+  async insertInsightVerdict(
+    input: InsertInsightVerdictInput,
+  ): Promise<InsightVerdictRow> {
+    const ownerId = this.defaultOwnerId();
+    const payload = {
+      owner_id: ownerId,
+      insight_id: input.insightId,
+      insight_kind: input.insightKind,
+      verdict: input.verdict,
+      note: input.note ?? null,
+      non_obvious: input.nonObvious ?? null,
+      useful: input.useful ?? null,
+    };
+    const { data, error } = await this.client
+      .from("insight_verdicts")
+      .insert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] insertInsightVerdict:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        insightId: input.insightId,
+        insightKind: input.insightKind,
+        verdict: input.verdict,
+        note: input.note ?? null,
+        nonObvious: input.nonObvious ?? null,
+        useful: input.useful ?? null,
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return mapInsightVerdict(data as Record<string, unknown>);
+  }
+
+  async listInsightVerdicts(
+    options: ListInsightVerdictsOptions = {},
+  ): Promise<InsightVerdictRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("insight_verdicts")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.insightId) q = q.eq("insight_id", options.insightId);
+    if (options.since) q = q.gte("created_at", options.since);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listInsightVerdicts:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapInsightVerdict(row as Record<string, unknown>),
+    );
+  }
+
+  async insertClaimEvidence(
+    input: InsertClaimEvidenceInput,
+  ): Promise<ClaimEvidenceRow> {
+    const ownerId = this.defaultOwnerId();
+    const payload = {
+      owner_id: ownerId,
+      claim_id: input.claimId,
+      claim_kind: input.claimKind,
+      observation_id: input.observationId ?? null,
+      evidence: input.evidence,
+      polarity: input.polarity,
+    };
+    const { data, error } = await this.client
+      .from("claim_evidence")
+      .insert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] insertClaimEvidence:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        claimId: input.claimId,
+        claimKind: input.claimKind,
+        observationId: input.observationId ?? null,
+        evidence: input.evidence,
+        polarity: input.polarity,
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return mapClaimEvidence(data as Record<string, unknown>);
+  }
+
+  async listClaimEvidence(options: {
+    claimId?: string;
+    claimKind?: string;
+    limit?: number;
+  } = {}): Promise<ClaimEvidenceRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("claim_evidence")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.claimId) q = q.eq("claim_id", options.claimId);
+    if (options.claimKind) q = q.eq("claim_kind", options.claimKind);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listClaimEvidence:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapClaimEvidence(row as Record<string, unknown>),
+    );
+  }
+
+  async upsertDecision(input: UpsertDecisionInput): Promise<DecisionRow> {
+    const now = new Date().toISOString();
+    const ownerId = this.defaultOwnerId();
+    const payload: Record<string, unknown> = {
+      owner_id: ownerId,
+      title: input.title,
+      statement: input.statement ?? "",
+      decided_at: input.decidedAt ?? now,
+      expected_outcome: input.expectedOutcome ?? null,
+      related_hypothesis_ids: input.relatedHypothesisIds ?? [],
+      related_entity_keys: input.relatedEntityKeys ?? [],
+      source: input.source ?? "user",
+      distillate_id: input.distillateId ?? null,
+      metadata: input.metadata ?? {},
+    };
+    if (input.id) payload.id = input.id;
+    const { data, error } = await this.client
+      .from("decisions")
+      .upsert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertDecision:", error.message);
+      return {
+        id: input.id ?? "noop",
+        ownerId,
+        title: input.title,
+        statement: input.statement ?? "",
+        decidedAt: input.decidedAt ?? now,
+        expectedOutcome: input.expectedOutcome ?? null,
+        relatedHypothesisIds: input.relatedHypothesisIds ?? [],
+        relatedEntityKeys: input.relatedEntityKeys ?? [],
+        source: input.source ?? "user",
+        distillateId: input.distillateId ?? null,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        createdAt: now,
+      };
+    }
+    return mapDecision(data as Record<string, unknown>);
+  }
+
+  async listDecisionsTable(
+    options: ListDecisionsOptions = {},
+  ): Promise<DecisionRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("decisions")
+      .select("*")
+      .order("decided_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.since) q = q.gte("decided_at", options.since);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listDecisionsTable:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapDecision(row as Record<string, unknown>),
+    );
+  }
+
+  async insertDecisionOutcome(
+    input: InsertDecisionOutcomeInput,
+  ): Promise<DecisionOutcomeRow> {
+    const ownerId = this.defaultOwnerId();
+    const payload = {
+      owner_id: ownerId,
+      decision_id: input.decisionId,
+      recorded_at: input.recordedAt ?? new Date().toISOString(),
+      actual_outcome: input.actualOutcome,
+      aligned_with_expected: input.alignedWithExpected ?? null,
+      evidence: input.evidence ?? [],
+      learning: input.learning ?? null,
+      metadata: input.metadata ?? {},
+    };
+    const { data, error } = await this.client
+      .from("decision_outcomes")
+      .insert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] insertDecisionOutcome:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        decisionId: input.decisionId,
+        recordedAt: input.recordedAt ?? new Date().toISOString(),
+        actualOutcome: input.actualOutcome,
+        alignedWithExpected: input.alignedWithExpected ?? null,
+        evidence: input.evidence ?? [],
+        learning: input.learning ?? null,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+      };
+    }
+    return mapDecisionOutcome(data as Record<string, unknown>);
+  }
+
+  async listDecisionOutcomes(options: {
+    decisionId?: string;
+    limit?: number;
+  } = {}): Promise<DecisionOutcomeRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("decision_outcomes")
+      .select("*")
+      .order("recorded_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.decisionId) q = q.eq("decision_id", options.decisionId);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listDecisionOutcomes:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapDecisionOutcome(row as Record<string, unknown>),
+    );
+  }
+
+  async upsertExperiment(
+    input: UpsertExperimentInput,
+  ): Promise<ExperimentRow> {
+    const now = new Date().toISOString();
+    const ownerId = this.defaultOwnerId();
+    const payload: Record<string, unknown> = {
+      owner_id: ownerId,
+      hypothesis_id: input.hypothesisId,
+      title: input.title,
+      protocol: input.protocol,
+      status: input.status ?? "proposed",
+      proposed_at: input.proposedAt ?? now,
+      due_at: input.dueAt ?? null,
+      completed_at: input.completedAt ?? null,
+      result_summary: input.resultSummary ?? null,
+      result_polarity: input.resultPolarity ?? null,
+      evidence: input.evidence ?? [],
+      metadata: input.metadata ?? {},
+    };
+    if (input.id) payload.id = input.id;
+    const { data, error } = await this.client
+      .from("experiments")
+      .upsert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertExperiment:", error.message);
+      return {
+        id: input.id ?? "noop",
+        ownerId,
+        hypothesisId: input.hypothesisId,
+        title: input.title,
+        protocol: input.protocol,
+        status: input.status ?? "proposed",
+        proposedAt: input.proposedAt ?? now,
+        dueAt: input.dueAt ?? null,
+        completedAt: input.completedAt ?? null,
+        resultSummary: input.resultSummary ?? null,
+        resultPolarity: input.resultPolarity ?? null,
+        evidence: input.evidence ?? [],
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+      };
+    }
+    return mapExperiment(data as Record<string, unknown>);
+  }
+
+  async listExperiments(
+    options: ListExperimentsOptions = {},
+  ): Promise<ExperimentRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("experiments")
+      .select("*")
+      .order("proposed_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.status) q = q.eq("status", options.status);
+    if (options.hypothesisId) q = q.eq("hypothesis_id", options.hypothesisId);
+    if (options.dueBefore) q = q.lte("due_at", options.dueBefore);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listExperiments:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapExperiment(row as Record<string, unknown>),
+    );
+  }
+
+  async upsertPredictionEvent(
+    input: UpsertPredictionEventInput,
+  ): Promise<PredictionEventRow> {
+    const now = new Date().toISOString();
+    const ownerId = this.defaultOwnerId();
+    const payload: Record<string, unknown> = {
+      owner_id: ownerId,
+      claim_id: input.claimId,
+      claim_kind: input.claimKind ?? "hypothesis",
+      domain: input.domain ?? null,
+      predicted: input.predicted,
+      actual: input.actual ?? null,
+      correct: input.correct ?? null,
+      resolved_at: input.resolvedAt ?? null,
+    };
+    if (input.id) payload.id = input.id;
+    const { data, error } = await this.client
+      .from("prediction_events")
+      .upsert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertPredictionEvent:", error.message);
+      return {
+        id: input.id ?? "noop",
+        ownerId,
+        claimId: input.claimId,
+        claimKind: input.claimKind ?? "hypothesis",
+        domain: input.domain ?? null,
+        predicted: input.predicted,
+        actual: input.actual ?? null,
+        correct: input.correct ?? null,
+        createdAt: now,
+        resolvedAt: input.resolvedAt ?? null,
+      };
+    }
+    return mapPredictionEvent(data as Record<string, unknown>);
+  }
+
+  async listPredictionEvents(
+    options: ListPredictionEventsOptions = {},
+  ): Promise<PredictionEventRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("prediction_events")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.claimId) q = q.eq("claim_id", options.claimId);
+    if (options.since) q = q.gte("created_at", options.since);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listPredictionEvents:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapPredictionEvent(row as Record<string, unknown>),
+    );
+  }
+
+  async insertSelfModelDiff(
+    input: InsertSelfModelDiffInput,
+  ): Promise<SelfModelDiffRow> {
+    const ownerId = this.defaultOwnerId();
+    const payload = {
+      owner_id: ownerId,
+      from_version_id: input.fromVersionId ?? null,
+      to_version_id: input.toVersionId,
+      stable: input.stable ?? [],
+      emerging: input.emerging ?? [],
+      fading: input.fading ?? [],
+      environment_shifts: input.environmentShifts ?? [],
+      confirmed_predictions: input.confirmedPredictions ?? [],
+      disproved_predictions: input.disprovedPredictions ?? [],
+      event_anchors: input.eventAnchors ?? [],
+    };
+    const { data, error } = await this.client
+      .from("self_model_diffs")
+      .insert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] insertSelfModelDiff:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        fromVersionId: input.fromVersionId ?? null,
+        toVersionId: input.toVersionId,
+        stable: input.stable ?? [],
+        emerging: input.emerging ?? [],
+        fading: input.fading ?? [],
+        environmentShifts: input.environmentShifts ?? [],
+        confirmedPredictions: input.confirmedPredictions ?? [],
+        disprovedPredictions: input.disprovedPredictions ?? [],
+        eventAnchors: input.eventAnchors ?? [],
+        createdAt: new Date().toISOString(),
+      };
+    }
+    return mapSelfModelDiff(data as Record<string, unknown>);
+  }
+
+  async listSelfModelDiffs(
+    options: ListSelfModelDiffsOptions = {},
+  ): Promise<SelfModelDiffRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
+    let q = this.client
+      .from("self_model_diffs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.toVersionId) q = q.eq("to_version_id", options.toVersionId);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listSelfModelDiffs:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapSelfModelDiff(row as Record<string, unknown>),
     );
   }
 }

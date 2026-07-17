@@ -21,6 +21,10 @@ export const REFLECTIVE_KINDS = [
   "spotify_interest_digest",
   "browser_interest_digest",
   "reading_interest_digest",
+  "interest_map",
+  "weekly_mirror",
+  "open_questions_snapshot",
+  "change_report",
   "portrait",
   "self_model",
 ] as const;

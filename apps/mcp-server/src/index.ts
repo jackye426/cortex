@@ -21,7 +21,6 @@ import {
 } from "./env.js";
 import { logMcpAudit } from "./audit.js";
 import {
-  refreshSelfModel,
   runEmbedBackfill,
   runPriorityVsActual,
   runProjectBriefJob,
@@ -36,6 +35,13 @@ import { refreshPortrait } from "./portrait.js";
 import { runSourceAdapter, SOURCE_ADAPTERS } from "./source-adapters.js";
 import { runTwinPipeline } from "./twin-pipeline.js";
 import { MEMORY_EVAL_QUESTIONS } from "./eval/baseline.js";
+import { runInsightQualityFixtures } from "./eval/insight-quality.js";
+import { extractObservations } from "./intrapersonal/extract-observations.js";
+import { auditSourceCoverage } from "./intrapersonal/source-health.js";
+import { refreshInterestMap } from "./intrapersonal/interest-map.js";
+import { refreshWeeklyMirror } from "./intrapersonal/weekly-mirror.js";
+import { snapshotOpenQuestions } from "./intrapersonal/open-questions.js";
+import { compileSelfModelVersion } from "./intrapersonal/self-model-v2.js";
 loadDotEnv();
 
 const vaultStore = createStore("vault");
@@ -299,8 +305,14 @@ app.post("/v1/twin", async (c) => {
     return c.json({ ok: true, job, ...result });
   }
   if (job === "self-model") {
-    const row = await refreshSelfModel(vaultStore, { dryRun });
-    return c.json({ ok: true, job, distillate: row });
+    const compiled = await compileSelfModelVersion(vaultStore, { dryRun });
+    return c.json({
+      ok: true,
+      job,
+      distillate: compiled.distillate,
+      version: compiled.version,
+      written: compiled.written,
+    });
   }
   if (job === "portrait") {
     const result = await refreshPortrait(vaultStore, { dryRun });
@@ -308,6 +320,22 @@ app.post("/v1/twin", async (c) => {
   }
   if (job === "youtube-digest") {
     const result = await runYoutubeInterestDigest(vaultStore, { dryRun, limitRecords: limit });
+    return c.json({ ok: true, job, ...result });
+  }
+  if (job === "extract-observations") {
+    const result = await extractObservations(vaultStore, { dryRun, limit });
+    return c.json({ ok: true, job, ...result });
+  }
+  if (job === "interest-map") {
+    const result = await refreshInterestMap(vaultStore, { dryRun });
+    return c.json({ ok: true, job, ...result });
+  }
+  if (job === "weekly-mirror") {
+    const result = await refreshWeeklyMirror(vaultStore, { dryRun });
+    return c.json({ ok: true, job, ...result });
+  }
+  if (job === "open-questions") {
+    const result = await snapshotOpenQuestions(vaultStore, { dryRun });
     return c.json({ ok: true, job, ...result });
   }
   return c.json(
@@ -320,6 +348,10 @@ app.post("/v1/twin", async (c) => {
         "self-model",
         "portrait",
         "youtube-digest",
+        "extract-observations",
+        "interest-map",
+        "weekly-mirror",
+        "open-questions",
       ],
     },
     400,
@@ -445,7 +477,7 @@ app.post("/v1/source-adapter", async (c) => {
   }
 });
 
-/** Quality-gate harness: run baseline questions through ask_mirror (fixture/live). */
+/** Quality-gate harness: memory questions and/or insight-quality fixtures. */
 app.post("/v1/quality-gate", async (c) => {
   const expected = resolveMcpToken();
   if (!expected) {
@@ -462,54 +494,90 @@ app.post("/v1/quality-gate", async (c) => {
   }
 
   let limitQuestions: number = MEMORY_EVAL_QUESTIONS.length;
+  let suite: "memory" | "insight" | "all" = "memory";
   try {
-    const body = (await c.req.json()) as { limit?: number };
+    const body = (await c.req.json()) as { limit?: number; suite?: string };
     if (typeof body.limit === "number" && body.limit > 0) {
       limitQuestions = Math.floor(body.limit);
+    }
+    if (body.suite === "insight" || body.suite === "all" || body.suite === "memory") {
+      suite = body.suite;
     }
   } catch {
     // empty ok
   }
 
-  const results = [];
-  for (const q of MEMORY_EVAL_QUESTIONS.slice(0, limitQuestions)) {
-    const answer = await askMirror(vaultStore, {
-      query: q.question,
-      mode: q.mode,
-      limit: 10,
-    });
-    const hasEvidence = answer.evidence.length > 0;
-    const unsupported = answer.claims.filter(
-      (cl) =>
-        cl.claimType !== "hypothesis" &&
-        cl.evidenceRefs.some((id) => !answer.evidence.some((e) => e.id === id)),
-    );
-    results.push({
-      id: q.id,
-      question: q.question,
-      expectsEvidence: q.expectsEvidence,
-      hasEvidence,
-      pass:
-        q.expectsEvidence === false
-          ? answer.confidence < 0.45 ||
-            /insufficient/i.test(answer.answer) ||
-            answer.gaps.length > 0
-          : hasEvidence && unsupported.length === 0,
-      confidence: answer.confidence,
-      claimCount: answer.claims.length,
-      evidenceCount: answer.evidence.length,
-      gaps: answer.gaps,
-    });
-  }
-
-  const passed = results.filter((r) => r.pass).length;
-  return c.json({
+  const out: Record<string, unknown> = {
     ok: true,
     store: vaultStore.mode,
-    passed,
-    total: results.length,
-    results,
-  });
+    suite,
+  };
+
+  if (suite === "memory" || suite === "all") {
+    const results = [];
+    for (const q of MEMORY_EVAL_QUESTIONS.slice(0, limitQuestions)) {
+      const answer = await askMirror(vaultStore, {
+        query: q.question,
+        mode: q.mode,
+        limit: 10,
+      });
+      const hasEvidence = answer.evidence.length > 0;
+      const unsupported = answer.claims.filter(
+        (cl) =>
+          cl.claimType !== "hypothesis" &&
+          cl.evidenceRefs.some((id) => !answer.evidence.some((e) => e.id === id)),
+      );
+      results.push({
+        id: q.id,
+        question: q.question,
+        expectsEvidence: q.expectsEvidence,
+        hasEvidence,
+        pass:
+          q.expectsEvidence === false
+            ? answer.confidence < 0.45 ||
+              /insufficient/i.test(answer.answer) ||
+              answer.gaps.length > 0
+            : hasEvidence && unsupported.length === 0,
+        confidence: answer.confidence,
+        claimCount: answer.claims.length,
+        evidenceCount: answer.evidence.length,
+        gaps: answer.gaps,
+        familyHistogram: answer.familyHistogram,
+        evidenceIssues: answer.evidenceIssues,
+      });
+    }
+    out.memory = {
+      passed: results.filter((r) => r.pass).length,
+      total: results.length,
+      results,
+    };
+  }
+
+  if (suite === "insight" || suite === "all") {
+    const insight = runInsightQualityFixtures();
+    out.insight = insight;
+  }
+
+  return c.json(out);
+});
+
+/** Source coverage audit (I1). */
+app.post("/v1/audit/source-coverage", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      {
+        error:
+          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+      },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const report = await auditSourceCoverage(vaultStore);
+  return c.json({ ok: true, store: vaultStore.mode, ...report });
 });
 
 /** Nightly / weekly / backfill twin pipeline (cron target). */
