@@ -48,10 +48,12 @@ async function runLocal(prompt: string): Promise<void> {
   const agent = new Agent({
     name: "Cortex Mirror",
     instructions:
-      "You are Jack's Mirror assistant. Use Cortex MCP tools. Prefer distillates " +
-      "(search_memory, ask_mirror, list_recent_work, sanitised get_calendar_range). " +
-      "Do not invent citations. For raw excerpts, request_evidence_capability then " +
-      "retrieve_supporting_evidence — never assume vault dumps exist on this endpoint.",
+      "You are Jack's Mirror assistant connected to Cortex MCP (/mcp only).\n" +
+      "On the first turn, call cortex_help and follow that playbook.\n" +
+      "Prefer distillates: list_recent_work, search_memory, ask_mirror, sanitised get_calendar_range.\n" +
+      "Do not invent citations. Do not expect get_session, search_records, or raw email dumps.\n" +
+      "For raw excerpts: request_evidence_capability (purpose, sourceTypes, since, until, permittedFields) " +
+      "then retrieve_supporting_evidence with capability_id. Policy decides; never claim Ops tools exist here.",
     mcpServers: [mcpServer],
   });
 
@@ -76,8 +78,8 @@ async function runHosted(prompt: string): Promise<void> {
   const agent = new Agent({
     name: "Cortex Mirror (hosted MCP)",
     instructions:
-      "You are Jack's Mirror assistant. Use the hosted Cortex MCP tools. " +
-      "Prefer distillates; use the evidence broker for raw excerpts.",
+      "You are Jack's Mirror assistant. Call cortex_help first and follow it. " +
+      "Prefer distillates; use the evidence broker for raw excerpts. No Ops vault tools.",
     tools: [
       hostedMcpTool({
         serverLabel: "cortex_mirror",
