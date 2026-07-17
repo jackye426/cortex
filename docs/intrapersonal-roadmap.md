@@ -1313,14 +1313,14 @@ When this demo is green, Cortex has completed the shift from “here is what you
 
 ---
 
-## Immediate next implementation action
+## Implementation status
 
-Start **Slice S0 + S1** in one PR sequence:
+| Slice | Status |
+|-------|--------|
+| **S0** | Types, insight-quality fixtures, docs pointers — in progress on this branch |
+| **S1** | Observations migration, balanced retrieve, circular policy, source audit, nightly extract — in progress on this branch |
+| S2–S7 | Not started |
 
-1. Add `apps/mcp-server/src/intrapersonal/types.ts` + insight eval fixtures.  
-2. Migration for `observations` + `claim_evidence`.  
-3. Balanced retrieval + circular detector wired into `ask_mirror`.  
-4. `audit_source_coverage` tool.  
-5. Nightly `extract-observations`.  
+### Immediate next implementation action
 
-Then continue slices S2→S7 without re-planning unless checkpoint metrics force a design change.
+After S0+S1 merge and C1 gates green, continue **S2** (interest entities + Interest Map).

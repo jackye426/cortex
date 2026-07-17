@@ -36,10 +36,12 @@ import type {
   EntityRow,
   FileSummary,
   LinkEntityInput,
+  ListObservationsOptions,
   ListRecentWorkOptions,
   MemorySearchHit,
   MemorySearchOptions,
   MemorySearchResult,
+  ObservationRow,
   RecentWorkItem,
   RecordHit,
   SearchRecordsOptions,
@@ -48,7 +50,10 @@ import type {
   SessionEnvelopeInput,
   StoreCredential,
   UpsertEntityInput,
+  UpsertObservationInput,
 } from "./types.js";
+
+const fixtureObservations: ObservationRow[] = [];
 
 /**
  * In-memory fixture store — used when Supabase is not configured.
@@ -468,5 +473,57 @@ export class FixtureStore implements CortexStore {
 
   async listEntityLinks(entityId: string): Promise<EntityLinkRow[]> {
     return fixtureEntityLinks.filter((l) => l.entityId === entityId);
+  }
+
+  async upsertObservation(
+    input: UpsertObservationInput,
+  ): Promise<ObservationRow> {
+    const existing = fixtureObservations.find(
+      (o) => o.contentHash === input.contentHash,
+    );
+    if (existing) {
+      existing.statement = input.statement;
+      existing.confidence = input.confidence ?? existing.confidence;
+      existing.metadata = { ...existing.metadata, ...(input.metadata ?? {}) };
+      existing.occurredAt = input.occurredAt ?? existing.occurredAt;
+      return existing;
+    }
+    const created: ObservationRow = {
+      id: randomUUID(),
+      epistemicType: input.epistemicType,
+      statement: input.statement,
+      sourceFamily: input.sourceFamily,
+      independenceGroup: input.independenceGroup,
+      occurredAt: input.occurredAt ?? null,
+      capturedAt: new Date().toISOString(),
+      recordId: input.recordId ?? null,
+      distillateId: input.distillateId ?? null,
+      sessionId: input.sessionId ?? null,
+      supportKind: input.supportKind ?? "direct_observation",
+      confidence: input.confidence ?? 0.5,
+      metadata: input.metadata ?? {},
+      contentHash: input.contentHash,
+    };
+    fixtureObservations.push(created);
+    return created;
+  }
+
+  async listObservations(
+    options: ListObservationsOptions = {},
+  ): Promise<ObservationRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureObservations
+      .filter((o) => {
+        if (options.sourceFamily && o.sourceFamily !== options.sourceFamily) {
+          return false;
+        }
+        if (options.distillateId && o.distillateId !== options.distillateId) {
+          return false;
+        }
+        if (options.since && (o.occurredAt ?? "") < options.since) return false;
+        if (options.until && (o.occurredAt ?? "") > options.until) return false;
+        return true;
+      })
+      .slice(0, limit);
   }
 }

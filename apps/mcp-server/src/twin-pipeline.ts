@@ -20,6 +20,7 @@ import {
   type SourceAdapterResult,
 } from "./source-adapters.js";
 import { isoWeekKey } from "./week-helpers.js";
+import { extractObservations } from "./intrapersonal/extract-observations.js";
 
 export type TwinPipelineMode = "nightly" | "weekly" | "backfill";
 
@@ -61,6 +62,8 @@ export interface TwinPipelineResult {
     scanned: number;
     skippedSensitive?: number;
   }>;
+  observationsScanned?: number;
+  observationsWritten?: number;
 }
 
 async function runDistillateBatches(
@@ -215,6 +218,16 @@ export async function runTwinPipeline(
   out.seedEntitiesLinked = seed.linked;
   console.info(
     `[twin-pipeline] seed-entities linked=${seed.linked} upserted=${seed.upserted.length}`,
+  );
+
+  const observations = await extractObservations(store, {
+    dryRun,
+    limit: Math.max(batchSize * 2, 80),
+  });
+  out.observationsScanned = observations.scanned;
+  out.observationsWritten = observations.written;
+  console.info(
+    `[twin-pipeline] extract-observations scanned=${observations.scanned} written=${observations.written} skipped=${observations.skipped}`,
   );
 
   if (mode === "weekly" || mode === "backfill") {

@@ -29,6 +29,9 @@ import {
   seedEntitiesFromDistillates,
 } from "./project-brief.js";
 import type { CortexStore } from "./store/index.js";
+import { extractObservations } from "./intrapersonal/extract-observations.js";
+import { auditSourceCoverage } from "./intrapersonal/source-health.js";
+import type { SourceFamily } from "./intrapersonal/types.js";
 
 function textResult(data: unknown) {
   return {
@@ -916,22 +919,112 @@ export function registerCortexTools(
     "ask_mirror",
     {
       description:
-        "Citation-required query-time Analyst over distillates + connection candidates. Ephemeral. Does not silently load raw vault rows — use retrieve_supporting_evidence when needed, then re-ask. Hypotheses ≠ facts.",
+        "Citation-required query-time Analyst over distillates + connection candidates. Ephemeral. Does not silently load raw vault rows — use retrieve_supporting_evidence when needed, then re-ask. Hypotheses ≠ facts. Reflective/both modes use source-balanced retrieval; assistant-only support is down-ranked.",
       inputSchema: {
         query: z.string(),
         mode: z.enum(["operational", "reflective", "both"]).optional(),
         limit: z.number().int().min(1).max(40).optional(),
+        balanceBySource: z
+          .boolean()
+          .optional()
+          .describe(
+            "Override source balancing (default true for reflective/both)",
+          ),
       },
     },
-    async ({ query, mode, limit }) => {
+    async ({ query, mode, limit, balanceBySource }) => {
       const result = await askMirror(store, {
         query,
         mode,
         limit,
+        balanceBySource,
         auditToken,
         endpoint: profile,
       });
       return textResult({ ...result, vaultMode: store.mode, profile });
+    },
+  );
+
+  server.registerTool(
+    "audit_source_coverage",
+    {
+      description:
+        "Evidence-integrity audit: per-source ingest/distill/embed coverage, reflective vs operational share, and AI drowning risk (I1).",
+      inputSchema: {},
+    },
+    async () => {
+      const report = await auditSourceCoverage(store);
+      void logMcpAudit({
+        token: auditToken,
+        route: "audit_source_coverage",
+        method: "TOOL",
+        metadata: {
+          surface: "audit_source_coverage",
+          endpoint: profile,
+          retention: "ephemeral",
+          ai_share: report.aiSessionShareOfRecentDistillates,
+        },
+      });
+      return textResult({ mode: store.mode, ...report });
+    },
+  );
+
+  server.registerTool(
+    "list_observations",
+    {
+      description:
+        "List durable factual observations / self-reports extracted for intrapersonal evidence (I1). Not interpretations.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional(),
+        sourceFamily: z
+          .enum([
+            "ai_sessions",
+            "calendar",
+            "email",
+            "github",
+            "drive",
+            "media_youtube",
+            "media_spotify",
+            "browser",
+            "reading",
+            "decisions",
+            "reflections",
+            "people_feedback",
+            "other",
+          ])
+          .optional(),
+        since: z.string().optional(),
+        until: z.string().optional(),
+      },
+    },
+    async ({ limit, sourceFamily, since, until }) => {
+      const rows = await store.listObservations({
+        limit,
+        sourceFamily: sourceFamily as SourceFamily | undefined,
+        since,
+        until,
+      });
+      return textResult({
+        mode: store.mode,
+        count: rows.length,
+        observations: rows,
+      });
+    },
+  );
+
+  server.registerTool(
+    "extract_observations",
+    {
+      description:
+        "Extract factual observations from recent distillates into the observations table (I1 nightly job). dryRun previews without writing.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional(),
+        dryRun: z.boolean().optional(),
+      },
+    },
+    async ({ limit, dryRun }) => {
+      const result = await extractObservations(store, { limit, dryRun });
+      return textResult({ mode: store.mode, ...result });
     },
   );
 

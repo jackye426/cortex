@@ -1,5 +1,17 @@
 /** Shared shapes for MCP tool backends (Supabase or fixture mode). */
 
+import type {
+  ListObservationsOptions,
+  ObservationRow,
+  UpsertObservationInput,
+} from "../intrapersonal/types.js";
+
+export type {
+  ListObservationsOptions,
+  ObservationRow,
+  UpsertObservationInput,
+};
+
 export interface RecordHit {
   id: string;
   sourceId: string;
@@ -312,4 +324,7 @@ export interface CortexStore {
   upsertEntity(input: UpsertEntityInput): Promise<EntityRow>;
   linkEntity(input: LinkEntityInput): Promise<EntityLinkRow>;
   listEntityLinks(entityId: string): Promise<EntityLinkRow[]>;
+  /** Durable factual intrapersonal atoms (I1). */
+  upsertObservation(input: UpsertObservationInput): Promise<ObservationRow>;
+  listObservations(options?: ListObservationsOptions): Promise<ObservationRow[]>;
 }

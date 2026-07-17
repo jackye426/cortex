@@ -41,10 +41,12 @@ import type {
   EntityRow,
   FileSummary,
   LinkEntityInput,
+  ListObservationsOptions,
   ListRecentWorkOptions,
   MemorySearchHit,
   MemorySearchOptions,
   MemorySearchResult,
+  ObservationRow,
   RecentWorkItem,
   RecordHit,
   SearchRecordsOptions,
@@ -53,7 +55,12 @@ import type {
   SessionEnvelopeInput,
   StoreCredential,
   UpsertEntityInput,
+  UpsertObservationInput,
 } from "./types.js";
+import type {
+  EvidenceSupportKind,
+  SourceFamily,
+} from "../intrapersonal/types.js";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -71,6 +78,34 @@ function mapRecord(row: Record<string, unknown>): RecordHit {
     contentHash: String(row.content_hash ?? ""),
     occurredAt:
       typeof row.occurred_at === "string" ? row.occurred_at : null,
+  };
+}
+
+function mapObservation(row: Record<string, unknown>): ObservationRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    epistemicType:
+      row.epistemic_type === "self_report" ? "self_report" : "observation",
+    statement: String(row.statement ?? ""),
+    sourceFamily: String(row.source_family ?? "other") as SourceFamily,
+    independenceGroup: String(row.independence_group ?? "other"),
+    occurredAt: typeof row.occurred_at === "string" ? row.occurred_at : null,
+    capturedAt:
+      typeof row.captured_at === "string"
+        ? row.captured_at
+        : new Date().toISOString(),
+    recordId: typeof row.record_id === "string" ? row.record_id : null,
+    distillateId:
+      typeof row.distillate_id === "string" ? row.distillate_id : null,
+    sessionId: typeof row.session_id === "string" ? row.session_id : null,
+    supportKind: String(
+      row.support_kind ?? "direct_observation",
+    ) as EvidenceSupportKind,
+    confidence:
+      typeof row.confidence === "number" ? row.confidence : Number(row.confidence) || 0.5,
+    metadata: asRecord(row.metadata),
+    contentHash: String(row.content_hash ?? ""),
   };
 }
 
@@ -1390,6 +1425,88 @@ export class SupabaseStore implements CortexStore {
     }
     return (data ?? []).map((row) =>
       mapEntityLink(row as Record<string, unknown>),
+    );
+  }
+
+  async upsertObservation(
+    input: UpsertObservationInput,
+  ): Promise<ObservationRow> {
+    const now = new Date().toISOString();
+    const ownerId =
+      this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+    const payload = {
+      owner_id: ownerId,
+      epistemic_type: input.epistemicType,
+      statement: input.statement,
+      source_family: input.sourceFamily,
+      independence_group: input.independenceGroup,
+      occurred_at: input.occurredAt ?? null,
+      record_id: input.recordId ?? null,
+      distillate_id: input.distillateId ?? null,
+      session_id: input.sessionId ?? null,
+      support_kind: input.supportKind ?? "direct_observation",
+      confidence: input.confidence ?? 0.5,
+      metadata: input.metadata ?? {},
+      content_hash: input.contentHash,
+    };
+    const { data, error } = await this.client
+      .from("observations")
+      .upsert(payload, { onConflict: "owner_id,content_hash" })
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertObservation:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        epistemicType: input.epistemicType,
+        statement: input.statement,
+        sourceFamily: input.sourceFamily,
+        independenceGroup: input.independenceGroup,
+        occurredAt: input.occurredAt ?? null,
+        capturedAt: now,
+        recordId: input.recordId ?? null,
+        distillateId: input.distillateId ?? null,
+        sessionId: input.sessionId ?? null,
+        supportKind: input.supportKind ?? "direct_observation",
+        confidence: input.confidence ?? 0.5,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        contentHash: input.contentHash,
+      };
+    }
+    return mapObservation(data as Record<string, unknown>);
+  }
+
+  async listObservations(
+    options: ListObservationsOptions = {},
+  ): Promise<ObservationRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("observations")
+      .select("*")
+      .order("occurred_at", { ascending: false, nullsFirst: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.sourceFamily) {
+      q = q.eq("source_family", options.sourceFamily);
+    }
+    if (options.distillateId) {
+      q = q.eq("distillate_id", options.distillateId);
+    }
+    if (options.since) {
+      q = q.gte("occurred_at", options.since);
+    }
+    if (options.until) {
+      q = q.lte("occurred_at", options.until);
+    }
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listObservations:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapObservation(row as Record<string, unknown>),
     );
   }
 }

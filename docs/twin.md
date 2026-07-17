@@ -36,6 +36,14 @@ pnpm distillate -- --project-brief --limit=40
 pnpm distillate -- --priority-vs-actual
 pnpm distillate -- --self-model
 
+# Evidence integrity (I1) — also runs inside twin-pipeline after seed-entities
+# MCP: extract_observations / audit_source_coverage / list_observations
+# HTTP: POST /v1/twin { "job": "extract-observations" }
+#       POST /v1/audit/source-coverage
+# Insight quality fixtures:
+pnpm quality-gate -- --suite=insight
+pnpm quality-gate -- --suite=all --fixture
+
 # YouTube interest digests + quality gate
 pnpm youtube-digest -- --dry-run
 pnpm quality-gate -- --fixture --limit=11

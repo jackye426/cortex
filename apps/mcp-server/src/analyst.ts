@@ -20,6 +20,16 @@ import {
 } from "./store/memory-lenses.js";
 import type { CortexStore } from "./store/index.js";
 import type { DistillateRow, MemorySearchHit } from "./store/types.js";
+import {
+  balanceMemoryHits,
+  familyHistogram,
+} from "./intrapersonal/balanced-retrieve.js";
+import { enforceClaimEvidencePolicy } from "./intrapersonal/circular-evidence.js";
+import type {
+  AnnotatedMemoryHit,
+  InsightQualityIssue,
+  ProvenanceClaim,
+} from "./intrapersonal/types.js";
 
 export interface AskMirrorOptions {
   query: string;
@@ -28,6 +38,8 @@ export interface AskMirrorOptions {
   dryRun?: boolean;
   auditToken?: string;
   endpoint?: McpToolProfile;
+  /** Source-balanced retrieval (default true for reflective/both). */
+  balanceBySource?: boolean;
 }
 
 export interface MirrorClaim {
@@ -35,6 +47,9 @@ export interface MirrorClaim {
   claimType: "fact" | "observation" | "hypothesis";
   confidence: number;
   evidenceRefs: string[];
+  provisional?: boolean;
+  provenance?: ProvenanceClaim["provenance"];
+  alternativeExplanations?: string[];
 }
 
 export interface AskMirrorResult {
@@ -52,6 +67,9 @@ export interface AskMirrorResult {
     title: string;
     snippet: string;
     evidenceStrength: "distillate" | "keyword_only";
+    sourceFamily?: string;
+    independenceGroup?: string;
+    supportKind?: string;
   }>;
   candidates: Array<{
     score: number;
@@ -60,6 +78,9 @@ export interface AskMirrorResult {
     b: string;
   }>;
   engine: "llm" | "stub";
+  /** Evidence-integrity issues detected post-synthesis. */
+  evidenceIssues?: InsightQualityIssue[];
+  familyHistogram?: Record<string, number>;
 }
 
 function classifyMode(query: string, explicit?: MemoryMode): MemoryMode {
@@ -104,12 +125,55 @@ function validateClaims(
     .filter((c) => c.evidenceRefs.length > 0 || c.claimType === "hypothesis");
 }
 
+function toResultEvidence(
+  hits: AnnotatedMemoryHit[],
+): AskMirrorResult["evidence"] {
+  return hits.map((h) => ({
+    id: h.id,
+    kind: h.kind,
+    title: h.title,
+    snippet: h.snippet,
+    evidenceStrength: h.evidenceStrength,
+    sourceFamily: h.sourceFamily,
+    independenceGroup: h.independenceGroup,
+    supportKind: h.supportKind,
+  }));
+}
+
+function applyEvidencePolicy(
+  claims: MirrorClaim[],
+  annotated: AnnotatedMemoryHit[],
+): { claims: MirrorClaim[]; issues: InsightQualityIssue[] } {
+  const { claims: next, issues } = enforceClaimEvidencePolicy(
+    claims as ProvenanceClaim[],
+    annotated,
+  );
+  return {
+    claims: next.map((c) => ({
+      text: c.text,
+      claimType:
+        c.claimType === "fact" ||
+        c.claimType === "observation" ||
+        c.claimType === "hypothesis"
+          ? c.claimType
+          : "observation",
+      confidence: c.confidence,
+      evidenceRefs: c.evidenceRefs,
+      provisional: c.provisional,
+      provenance: c.provenance,
+      alternativeExplanations: c.alternativeExplanations,
+    })),
+    issues,
+  };
+}
+
 function stubAnswer(
   query: string,
-  evidence: AskMirrorResult["evidence"],
+  annotated: AnnotatedMemoryHit[],
   candidates: AskMirrorResult["candidates"],
 ): AskMirrorResult {
-  if (evidence.length === 0) {
+  const evidence = toResultEvidence(annotated);
+  if (annotated.length === 0) {
     return {
       answer: "Insufficient evidence in the vault for this question.",
       claims: [],
@@ -122,22 +186,26 @@ function stubAnswer(
       evidence,
       candidates,
       engine: "stub",
+      familyHistogram: {},
+      evidenceIssues: [],
     };
   }
-  const refs = evidence.slice(0, 3).map((e) => e.id);
+  const refs = annotated.slice(0, 3).map((e) => e.id);
+  const rawClaims: MirrorClaim[] = [
+    {
+      text: `Retrieved evidence related to: ${query}`,
+      claimType: "observation",
+      confidence: 0.55,
+      evidenceRefs: refs,
+    },
+  ];
+  const { claims, issues } = applyEvidencePolicy(rawClaims, annotated);
   return {
-    answer: `Based on ${evidence.length} evidence items: ${evidence
+    answer: `Based on ${annotated.length} evidence items: ${annotated
       .slice(0, 3)
       .map((e) => e.snippet)
       .join(" | ")}`,
-    claims: [
-      {
-        text: `Retrieved evidence related to: ${query}`,
-        claimType: "observation",
-        confidence: 0.55,
-        evidenceRefs: refs,
-      },
-    ],
+    claims,
     contradictions: [],
     coverage: "stub-heuristic",
     gaps: ["LLM unavailable — stub synthesis only."],
@@ -147,6 +215,8 @@ function stubAnswer(
     evidence,
     candidates,
     engine: "stub",
+    familyHistogram: familyHistogram(annotated),
+    evidenceIssues: issues,
   };
 }
 
@@ -157,6 +227,8 @@ export async function askMirror(
   const mode = classifyMode(options.query, options.mode);
   const limit = options.limit ?? 12;
   const trimmed = options.query.trim();
+  const balanceBySource =
+    options.balanceBySource ?? (mode === "reflective" || mode === "both");
   const finish = (result: AskMirrorResult): AskMirrorResult => {
     if (options.auditToken) {
       void logMcpAudit({
@@ -175,6 +247,9 @@ export async function askMirror(
           retention: "ephemeral",
           confidence: result.confidence,
           mode: result.mode,
+          family_histogram: result.familyHistogram ?? {},
+          evidence_issue_count: result.evidenceIssues?.length ?? 0,
+          balance_by_source: balanceBySource,
         },
       });
     }
@@ -196,17 +271,12 @@ export async function askMirror(
   const wantsYoutube = /\b(youtube|watching)\b/i.test(trimmed);
 
   const memory = await store.searchMemory(trimmed, {
-    limit,
+    limit: balanceBySource ? Math.max(limit * 3, 36) : limit,
     mode,
   });
 
-  const evidence: AskMirrorResult["evidence"] = memory.hits.map((h) => ({
-    id: h.id,
-    kind: h.distillateKind ?? h.recordType ?? h.kind,
-    title: h.title,
-    snippet: h.snippet,
-    evidenceStrength: h.kind === "distillate" ? "distillate" : "keyword_only",
-  }));
+  // Working set of MemorySearchHit before annotation/balance.
+  let workingHits: MemorySearchHit[] = memory.hits.map((h) => ({ ...h }));
 
   // Raw vault rows are broker-only — do not silently expand email/youtube here.
 
@@ -242,7 +312,7 @@ export async function askMirror(
     wantsSpotify ||
     wantsYoutube;
   if (boostKinds.length) {
-    const boostedEvidence: AskMirrorResult["evidence"] = [];
+    const boostedHits: MemorySearchHit[] = [];
     for (const d of boosted) {
       if (!distillateMatchesLenses(d, { mode })) continue;
       const hay = `${d.content ?? ""}\n${JSON.stringify(d.metadata)}`.toLowerCase();
@@ -258,32 +328,38 @@ export async function askMirror(
           trimmed,
         );
       if (!topical) continue;
-      boostedEvidence.push({
+      boostedHits.push({
+        kind: "distillate",
         id: d.id,
-        kind: d.kind,
+        score: 0.82,
         title: `${d.kind}:${d.subjectType}/${d.subjectId}`,
         snippet: (d.content ?? "").slice(0, 280),
-        evidenceStrength: "distillate",
+        distillateKind: d.kind,
+        subjectType: d.subjectType,
+        subjectId: d.subjectId,
+        sourceId:
+          typeof d.metadata.sourceType === "string"
+            ? d.metadata.sourceType
+            : typeof d.metadata.sourceId === "string"
+              ? d.metadata.sourceId
+              : undefined,
       });
     }
-    if (boostedEvidence.length) {
-      const rest = evidence.filter(
-        (e) => !boostedEvidence.some((b) => b.id === e.id),
+    if (boostedHits.length) {
+      const rest = workingHits.filter(
+        (e) => !boostedHits.some((b) => b.id === e.id),
       );
-      evidence.length = 0;
-      evidence.push(...boostedEvidence, ...rest);
-      if (evidence.length > Math.max(limit, 12)) {
-        evidence.length = Math.max(limit, 12);
-      }
+      workingHits = [...boostedHits, ...rest];
     }
   }
 
   // Lens-filtered fallback: natural-language questions often miss keyword ILIKE
-  if (evidence.length < Math.min(limit, 6)) {
+  const poolCap = balanceBySource ? Math.max(limit * 3, 36) : limit;
+  if (workingHits.length < Math.min(poolCap, 6)) {
     for (const d of distillates) {
-      if (evidence.length >= limit) break;
+      if (workingHits.length >= poolCap) break;
       if (!distillateMatchesLenses(d, { mode })) continue;
-      if (evidence.some((e) => e.id === d.id)) continue;
+      if (workingHits.some((e) => e.id === d.id)) continue;
       const hay = `${d.content ?? ""}\n${JSON.stringify(d.metadata)}`.toLowerCase();
       const tokens = trimmed
         .toLowerCase()
@@ -296,12 +372,15 @@ export async function askMirror(
           trimmed,
         );
       if (!hit) continue;
-      evidence.push({
+      workingHits.push({
+        kind: "distillate",
         id: d.id,
-        kind: d.kind,
+        score: 0.55,
         title: `${d.kind}:${d.subjectType}/${d.subjectId}`,
         snippet: (d.content ?? "").slice(0, 280),
-        evidenceStrength: "distillate",
+        distillateKind: d.kind,
+        subjectType: d.subjectType,
+        subjectId: d.subjectId,
       });
     }
   }
@@ -348,36 +427,52 @@ export async function askMirror(
     b: c.b.id,
   }));
 
-  // Promote connection-candidate nodes into cited evidence with content
+  // Promote connection-candidate nodes into the working hit pool
   for (const c of ranked) {
     for (const node of [c.a, c.b]) {
-      if (evidence.some((e) => e.id === node.id)) continue;
+      if (workingHits.some((e) => e.id === node.id)) continue;
       const d = byId.get(node.id);
-      evidence.push({
+      workingHits.push({
+        kind: "distillate",
         id: node.id,
-        kind: node.kind,
+        score: Math.max(0.5, c.score),
         title: d
           ? `${d.kind}:${d.subjectType}/${d.subjectId}`
           : `${node.kind}:${node.id}`,
         snippet: (d?.content ?? node.content).slice(0, 280),
-        evidenceStrength: "distillate",
+        distillateKind: d?.kind ?? node.kind,
+        subjectType: d?.subjectType,
+        subjectId: d?.subjectId,
+        sourceId:
+          typeof d?.metadata.sourceType === "string"
+            ? d.metadata.sourceType
+            : undefined,
       });
     }
   }
 
-  const allowedIds = new Set(evidence.map((e) => e.id));
+  const annotated = balanceBySource
+    ? balanceMemoryHits(workingHits, { limit, perFamily: 3 })
+    : balanceMemoryHits(workingHits, {
+        limit,
+        perFamily: Math.max(limit, 12),
+      });
+  const evidence = toResultEvidence(annotated);
+  const hist = familyHistogram(annotated);
+
+  const allowedIds = new Set(annotated.map((e) => e.id));
   for (const c of ranked) {
     allowedIds.add(c.a.id);
     allowedIds.add(c.b.id);
   }
 
   if (!openaiConfigured() || options.dryRun) {
-    const stub = stubAnswer(trimmed, evidence, candidateSummary);
+    const stub = stubAnswer(trimmed, annotated, candidateSummary);
     stub.mode = mode;
     return finish(stub);
   }
 
-  if (evidence.length === 0 && ranked.length === 0) {
+  if (annotated.length === 0 && ranked.length === 0) {
     return finish({
       answer: "Insufficient evidence in the vault for this question.",
       claims: [],
@@ -390,13 +485,15 @@ export async function askMirror(
       evidence,
       candidates: candidateSummary,
       engine: "llm",
+      familyHistogram: hist,
+      evidenceIssues: [],
     });
   }
 
-  const evidenceBlock = evidence
+  const evidenceBlock = annotated
     .map(
       (e) =>
-        `- id=${e.id} kind=${e.kind} strength=${e.evidenceStrength} title=${e.title}\n  ${e.snippet}`,
+        `- id=${e.id} kind=${e.kind} family=${e.sourceFamily} support=${e.supportKind} strength=${e.evidenceStrength} title=${e.title}\n  ${e.snippet}`,
     )
     .join("\n");
   const candidateBlock = ranked
@@ -411,7 +508,7 @@ export async function askMirror(
       system: `You are Cortex Mirror Analyst. Answer ONLY from supplied evidence.
 Return JSON: {
   answer: string,
-  claims: [{ text, claimType: "fact"|"observation"|"hypothesis", confidence: number, evidenceRefs: string[] }],
+  claims: [{ text, claimType: "fact"|"observation"|"hypothesis", confidence: number, evidenceRefs: string[], alternativeExplanations?: string[] }],
   contradictions: string[],
   coverage: string,
   gaps: string[],
@@ -423,6 +520,9 @@ Rules:
 - keyword_only evidence is weaker than distillate evidence; do not claim strong semantic overlap from keyword_only alone.
 - Prefer "insufficient evidence" over speculation.
 - Psychological conclusions must be labeled hypothesis and include gaps/counterevidence when possible.
+- Do not treat portrait/self_model alone as independent proof — prefer cross-family evidence.
+- High-confidence claims should cite multiple source families when available; otherwise lower confidence.
+- Include alternativeExplanations for substantial interpretive claims.
 - Do not invent ids.`,
       user: `Mode: ${mode}\nQuestion: ${trimmed}\n\nEvidence:\n${evidenceBlock}\n\nConnection candidates:\n${candidateBlock || "(none)"}`.slice(
         0,
@@ -432,7 +532,7 @@ Rules:
     });
     const parsed = JSON.parse(text) as Record<string, unknown>;
     const rawClaims = Array.isArray(parsed.claims) ? parsed.claims : [];
-    const claims: MirrorClaim[] = validateClaims(
+    const validated: MirrorClaim[] = validateClaims(
       rawClaims.map((c) => {
         const row = c as Record<string, unknown>;
         const claimType =
@@ -446,10 +546,12 @@ Rules:
           claimType,
           confidence: typeof row.confidence === "number" ? row.confidence : 0.5,
           evidenceRefs: asStringArray(row.evidenceRefs),
+          alternativeExplanations: asStringArray(row.alternativeExplanations),
         };
       }),
       allowedIds,
     );
+    const { claims, issues } = applyEvidencePolicy(validated, annotated);
 
     return finish({
       answer:
@@ -467,13 +569,15 @@ Rules:
       evidence,
       candidates: candidateSummary,
       engine: "llm",
+      familyHistogram: hist,
+      evidenceIssues: issues,
     });
   } catch (err) {
     console.warn(
       "[ask_mirror] LLM failed:",
       err instanceof Error ? err.message : err,
     );
-    const stub = stubAnswer(trimmed, evidence, candidateSummary);
+    const stub = stubAnswer(trimmed, annotated, candidateSummary);
     stub.mode = mode;
     stub.gaps.push("LLM synthesis failed; returned stub.");
     return finish(stub);
