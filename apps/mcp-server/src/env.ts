@@ -50,12 +50,34 @@ export function resolveOpsMcpToken(): string | undefined {
   return resolveMcpToken();
 }
 
+/** Gateway key for Kong `apikey` (anon or service_role). */
+export function resolveSupabaseGatewayKey(): string | undefined {
+  return (
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_ANON_KEY?.trim() ||
+    undefined
+  );
+}
+
+/** Vault / Ops credential (service role preferred). */
+export function resolveSupabaseVaultKey(): string | undefined {
+  return resolveSupabaseGatewayKey();
+}
+
+/**
+ * Mirror JWT (`role: cortex_mirror`). When unset, Mirror handlers fall back to
+ * the vault key (app-layer lockdown only).
+ */
+export function resolveSupabaseMirrorKey(): string | undefined {
+  return process.env.SUPABASE_MIRROR_KEY?.trim() || undefined;
+}
+
 export function isSupabaseConfigured(): boolean {
   const url = process.env.SUPABASE_URL?.trim();
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim();
+  const key = resolveSupabaseGatewayKey();
   if (!url || !key) return false;
   if (url.includes("YOUR_PROJECT_REF")) return false;
   return true;
 }
+
+export type SupabaseStoreKind = "vault" | "mirror";

@@ -442,6 +442,8 @@ export async function retrieveSupportingEvidence(
   profile: McpToolProfile,
   req: BrokerRequest,
   auditToken: string,
+  /** Raw vault reads after policy — defaults to `store` (Ops). Mirror passes vault store. */
+  vaultStore: CortexStore = store,
 ): Promise<BrokerResult> {
   const purpose = req.purpose?.trim() ?? "";
   if (!purpose) {
@@ -575,7 +577,7 @@ export async function retrieveSupportingEvidence(
 
   if (sourceTypes.includes("session")) {
     const sessionExcerpts = await loadSessionExcerpts(
-      store,
+      vaultStore,
       subjectIds,
       maxResults,
       permittedFields,
@@ -597,7 +599,7 @@ export async function retrieveSupportingEvidence(
     }
     for (const rt of types) {
       if (excerpts.length >= maxResults) break;
-      const rows = await store.listRecordsByTypeInRange(
+      const rows = await vaultStore.listRecordsByTypeInRange(
         rt,
         range.since,
         range.until,

@@ -38,7 +38,8 @@ import { runTwinPipeline } from "./twin-pipeline.js";
 import { MEMORY_EVAL_QUESTIONS } from "./eval/baseline.js";
 loadDotEnv();
 
-const store = createStore();
+const vaultStore = createStore("vault");
+const mirrorStore = createStore("mirror");
 
 function requireBearer(
   authHeader: string | undefined,
@@ -54,7 +55,18 @@ function createServer(
   profile: McpToolProfile,
   auditToken: string,
 ): McpServer {
-  return createCortexMcpServer(store, { profile, auditToken });
+  if (profile === "ops") {
+    return createCortexMcpServer(vaultStore, {
+      profile,
+      auditToken,
+      vaultStore,
+    });
+  }
+  return createCortexMcpServer(mirrorStore, {
+    profile,
+    auditToken,
+    vaultStore,
+  });
 }
 
 const app = new Hono();
@@ -79,7 +91,11 @@ app.get("/health", (c) =>
   c.json({
     ok: true,
     service: "cortex-mcp",
-    store: store.mode,
+    store: vaultStore.mode,
+    credentials: {
+      mirror: mirrorStore.credential,
+      vault: vaultStore.credential,
+    },
     endpoints: {
       mirror: "/mcp",
       ops: "/mcp/ops",
@@ -126,7 +142,7 @@ app.post("/v1/distillate", async (c) => {
     metadata: { limit, dryRun },
   });
 
-  const result = await runDistillateWorker(store, { limit, dryRun });
+  const result = await runDistillateWorker(vaultStore, { limit, dryRun });
   return c.json({ ok: true, ...result });
 });
 
@@ -173,7 +189,7 @@ app.post("/v1/project-brief", async (c) => {
     metadata: { limitSessions, dryRun },
   });
 
-  const result = await runProjectBriefJob(store, {
+  const result = await runProjectBriefJob(vaultStore, {
     limitSessions,
     dryRun,
     projectKeys,
@@ -222,7 +238,7 @@ app.post("/v1/embed-backfill", async (c) => {
     metadata: { limit, dryRun, force },
   });
 
-  const result = await runEmbedBackfill(store, { limit, dryRun, force });
+  const result = await runEmbedBackfill(vaultStore, { limit, dryRun, force });
   return c.json({ ok: true, ...result });
 });
 
@@ -268,30 +284,30 @@ app.post("/v1/twin", async (c) => {
   });
 
   if (job === "priority-vs-actual") {
-    const result = await runPriorityVsActual(store, { dryRun });
+    const result = await runPriorityVsActual(vaultStore, { dryRun });
     return c.json({ ok: true, job, ...result });
   }
   if (job === "seed-entities") {
-    const result = await seedEntitiesFromDistillates(store, { dryRun, limit });
+    const result = await seedEntitiesFromDistillates(vaultStore, { dryRun, limit });
     return c.json({ ok: true, job, ...result });
   }
   if (job === "project-brief") {
-    const result = await runProjectBriefJob(store, {
+    const result = await runProjectBriefJob(vaultStore, {
       dryRun,
       limitSessions: limit,
     });
     return c.json({ ok: true, job, ...result });
   }
   if (job === "self-model") {
-    const row = await refreshSelfModel(store, { dryRun });
+    const row = await refreshSelfModel(vaultStore, { dryRun });
     return c.json({ ok: true, job, distillate: row });
   }
   if (job === "portrait") {
-    const result = await refreshPortrait(store, { dryRun });
+    const result = await refreshPortrait(vaultStore, { dryRun });
     return c.json({ ok: true, job, ...result });
   }
   if (job === "youtube-digest") {
-    const result = await runYoutubeInterestDigest(store, { dryRun, limitRecords: limit });
+    const result = await runYoutubeInterestDigest(vaultStore, { dryRun, limitRecords: limit });
     return c.json({ ok: true, job, ...result });
   }
   return c.json(
@@ -354,7 +370,7 @@ app.post("/v1/ask-mirror", async (c) => {
     metadata: { mode, limit, queryLen: query.length },
   });
 
-  const result = await askMirror(store, { query, mode, limit });
+  const result = await askMirror(vaultStore, { query, mode, limit });
   return c.json({ ok: true, ...result });
 });
 
@@ -409,7 +425,7 @@ app.post("/v1/source-adapter", async (c) => {
   });
 
   try {
-    const result = await runSourceAdapter(store, adapter, { dryRun, limit });
+    const result = await runSourceAdapter(vaultStore, adapter, { dryRun, limit });
     return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json(
@@ -450,7 +466,7 @@ app.post("/v1/quality-gate", async (c) => {
 
   const results = [];
   for (const q of MEMORY_EVAL_QUESTIONS.slice(0, limitQuestions)) {
-    const answer = await askMirror(store, {
+    const answer = await askMirror(vaultStore, {
       query: q.question,
       mode: q.mode,
       limit: 10,
@@ -482,7 +498,7 @@ app.post("/v1/quality-gate", async (c) => {
   const passed = results.filter((r) => r.pass).length;
   return c.json({
     ok: true,
-    store: store.mode,
+    store: vaultStore.mode,
     passed,
     total: results.length,
     results,
@@ -537,7 +553,7 @@ app.post("/v1/twin-pipeline", async (c) => {
     metadata: { mode, dryRun, batchSize, maxBatches },
   });
 
-  const result = await runTwinPipeline(store, {
+  const result = await runTwinPipeline(vaultStore, {
     mode,
     dryRun,
     batchSize,
@@ -595,7 +611,7 @@ const port = Number(process.env.MCP_PORT ?? process.env.PORT ?? 8790);
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.info(
-    `Cortex MCP listening on http://localhost:${info.port} (store=${store.mode})`,
+    `Cortex MCP listening on http://localhost:${info.port} (mirror=${mirrorStore.credential} vault=${vaultStore.credential})`,
   );
   console.info(`  health: http://localhost:${info.port}/health`);
   console.info(`  mirror: http://localhost:${info.port}/mcp`);
@@ -603,4 +619,4 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.info(`  playbook(mirror): ${playbookForProfile("mirror").slice(0, 60)}…`);
 });
 
-export { app, store };
+export { app, vaultStore, mirrorStore };

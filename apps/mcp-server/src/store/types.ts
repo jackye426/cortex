@@ -231,8 +231,23 @@ export interface LinkEntityInput {
   metadata?: Record<string, unknown>;
 }
 
+export type StoreCredential = "vault" | "mirror" | "fixture";
+
+export interface CalendarStructureItem {
+  id: string;
+  sourceRecordId: string;
+  summary: string | null;
+  start: string | null;
+  end: string | null;
+  attendeeCount: number;
+  hasDescription: boolean;
+  hasAttachments: boolean;
+}
+
 export interface CortexStore {
   readonly mode: "supabase" | "fixture";
+  /** Which DB credential this store uses (mirror = limited JWT when configured). */
+  readonly credential: StoreCredential;
   searchRecords(
     query: string,
     options?: SearchRecordsOptions,
@@ -241,6 +256,14 @@ export interface CortexStore {
   listRecentWork(options?: ListRecentWorkOptions): Promise<RecentWorkItem[]>;
   getEmailThread(threadId: string): Promise<EmailThread | null>;
   getCalendarRange(start: string, end: string): Promise<CalendarEventItem[]>;
+  /**
+   * Mirror-safe calendar rows from `cortex_calendar_structure`
+   * (no description / attachment payloads).
+   */
+  getCalendarStructure(
+    start: string,
+    end: string,
+  ): Promise<CalendarStructureItem[]>;
   getFileSummary(fileId: string): Promise<FileSummary | null>;
   /** List recent records of a given record_type (ebook, bookmark, spotify_*, youtube_*). */
   listRecordsByType(

@@ -28,6 +28,7 @@ import {
 } from "./fixtures.js";
 import type {
   CalendarEventItem,
+  CalendarStructureItem,
   CortexStore,
   DistillateRow,
   EmailThread,
@@ -45,6 +46,7 @@ import type {
   SearchRecordsResult,
   SessionDetail,
   SessionEnvelopeInput,
+  StoreCredential,
   UpsertEntityInput,
 } from "./types.js";
 
@@ -54,6 +56,7 @@ import type {
  */
 export class FixtureStore implements CortexStore {
   readonly mode = "fixture" as const;
+  readonly credential: StoreCredential = "fixture";
 
   async searchRecords(
     query: string,
@@ -215,6 +218,30 @@ export class FixtureStore implements CortexStore {
     end: string,
   ): Promise<CalendarEventItem[]> {
     return calendarFromRecords(start, end, FIXTURE_RECORDS);
+  }
+
+  async getCalendarStructure(
+    start: string,
+    end: string,
+  ): Promise<CalendarStructureItem[]> {
+    const events = await this.getCalendarRange(start, end);
+    const byId = new Map(FIXTURE_RECORDS.map((r) => [r.id, r]));
+    return events.map((e) => {
+      const raw = byId.get(e.id);
+      const payload = raw?.payload ?? {};
+      const attendees = payload.attendees;
+      return {
+        id: e.id,
+        sourceRecordId: e.sourceRecordId,
+        summary: e.summary,
+        start: e.start,
+        end: e.end,
+        attendeeCount: Array.isArray(attendees) ? attendees.length : 0,
+        hasDescription: Boolean(String(payload.description ?? "").trim()),
+        hasAttachments:
+          Array.isArray(payload.attachments) && payload.attachments.length > 0,
+      };
+    });
   }
 
   async getFileSummary(fileId: string): Promise<FileSummary | null> {

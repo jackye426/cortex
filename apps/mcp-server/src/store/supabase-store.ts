@@ -1,5 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
+  resolveSupabaseGatewayKey,
+  resolveSupabaseMirrorKey,
+  type SupabaseStoreKind,
+} from "../env.js";
+import {
   CALENDAR_TYPE,
   EMPTY_MEMORY_HINT,
   EMPTY_SEARCH_HINT,
@@ -28,6 +33,7 @@ import {
 } from "./fixtures.js";
 import type {
   CalendarEventItem,
+  CalendarStructureItem,
   CortexStore,
   DistillateRow,
   EmailThread,
@@ -45,6 +51,7 @@ import type {
   SearchRecordsResult,
   SessionDetail,
   SessionEnvelopeInput,
+  StoreCredential,
   UpsertEntityInput,
 } from "./types.js";
 
@@ -122,26 +129,46 @@ function mapEntityLink(row: Record<string, unknown>): EntityLinkRow {
 }
 
 /**
- * Supabase-backed store. Requires SUPABASE_URL + service role (or anon) key.
+ * Supabase-backed store.
+ * - vault: service_role (Ops + compilers)
+ * - mirror: SUPABASE_MIRROR_KEY JWT via accessToken (Kong still needs a gateway key)
  */
 export class SupabaseStore implements CortexStore {
   readonly mode = "supabase" as const;
+  readonly credential: StoreCredential;
   private readonly client: SupabaseClient;
   private readonly ownerId: string | undefined;
 
-  constructor(client: SupabaseClient, ownerId?: string) {
+  constructor(
+    client: SupabaseClient,
+    ownerId?: string,
+    credential: StoreCredential = "vault",
+  ) {
     this.client = client;
     this.ownerId = ownerId;
+    this.credential = credential;
   }
 
-  static fromEnv(): SupabaseStore {
+  static fromEnv(kind: SupabaseStoreKind = "vault"): SupabaseStore {
     const url = process.env.SUPABASE_URL!.trim();
-    const key = (
-      process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-      process.env.SUPABASE_ANON_KEY?.trim()
-    )!;
+    const gatewayKey = resolveSupabaseGatewayKey()!;
     const ownerId = process.env.CORTEX_OWNER_ID?.trim() || undefined;
-    return new SupabaseStore(createClient(url, key), ownerId);
+    const mirrorKey = resolveSupabaseMirrorKey();
+
+    if (kind === "mirror" && mirrorKey) {
+      const client = createClient(url, gatewayKey, {
+        accessToken: async () => mirrorKey,
+      });
+      return new SupabaseStore(client, ownerId, "mirror");
+    }
+
+    if (kind === "mirror" && !mirrorKey) {
+      console.warn(
+        "[store] SUPABASE_MIRROR_KEY unset; Mirror store falls back to vault credential",
+      );
+    }
+
+    return new SupabaseStore(createClient(url, gatewayKey), ownerId, "vault");
   }
 
   private applyOwner<T extends { eq: (col: string, val: string) => T }>(
@@ -458,6 +485,74 @@ export class SupabaseStore implements CortexStore {
   async listRecentWork(
     options: ListRecentWorkOptions = {},
   ): Promise<RecentWorkItem[]> {
+    if (this.credential === "mirror") {
+      return this.listRecentWorkFromDistillates(options);
+    }
+    return this.listRecentWorkVault(options);
+  }
+
+  /** Mirror: sessions/records tables are denied — derive recent work from distillates. */
+  private async listRecentWorkFromDistillates(
+    options: ListRecentWorkOptions = {},
+  ): Promise<RecentWorkItem[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
+    const cutoff = horizonCutoffIso(options.horizonDays);
+    const kinds = [
+      "summary",
+      "decision",
+      "outcome",
+      "project_brief",
+      "github_outcome_digest",
+      "email_thread_digest",
+    ];
+    let dq = this.client
+      .from("distillates")
+      .select(
+        "id, kind, subject_type, subject_id, content, updated_at, created_at, metadata",
+      )
+      .in("kind", kinds)
+      .order("updated_at", { ascending: false })
+      .limit(Math.min(capped * 3, 120));
+    dq = this.applyOwner(dq);
+    const { data, error } = await dq;
+    if (error) {
+      console.warn(
+        "[store/supabase] listRecentWork(mirror):",
+        error.message,
+      );
+      return [];
+    }
+
+    const items: RecentWorkItem[] = [];
+    for (const row of data ?? []) {
+      const r = row as Record<string, unknown>;
+      const updated =
+        (typeof r.updated_at === "string" && r.updated_at) ||
+        (typeof r.created_at === "string" ? r.created_at : null);
+      if (!withinHorizon(updated, cutoff)) continue;
+      const kind = String(r.kind ?? "");
+      const subjectType = String(r.subject_type ?? "");
+      const content = typeof r.content === "string" ? r.content : "";
+      const title =
+        content.split("\n")[0]?.slice(0, 120) ||
+        `${kind}:${subjectType}/${String(r.subject_id ?? "")}`;
+      items.push({
+        kind: subjectType === "session" ? "session" : "record",
+        id: String(r.subject_id ?? r.id),
+        sourceId: "distillate",
+        title,
+        occurredAt: updated,
+        recordType: kind,
+        distillateSummary: content.slice(0, 180),
+      });
+      if (items.length >= capped) break;
+    }
+    return items;
+  }
+
+  private async listRecentWorkVault(
+    options: ListRecentWorkOptions = {},
+  ): Promise<RecentWorkItem[]> {
     const capped = Math.max(1, Math.min(options.limit ?? 20, 100));
     const kinds = options.kinds;
     const includeSessions = !kinds || kinds.includes("session");
@@ -654,6 +749,46 @@ export class SupabaseStore implements CortexStore {
         tombstoned,
       ),
     );
+  }
+
+  async getCalendarStructure(
+    start: string,
+    end: string,
+  ): Promise<CalendarStructureItem[]> {
+    const tombstoned = await this.loadTombstoneIds("record");
+    let q = this.client
+      .from("cortex_calendar_structure")
+      .select(
+        "id, source_record_id, summary, start_at, end_at, attendee_count, has_description, has_attachments, occurred_at",
+      )
+      .gte("occurred_at", start)
+      .lte("occurred_at", end)
+      .order("occurred_at", { ascending: true })
+      .limit(200);
+    q = this.applyOwner(q);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] getCalendarStructure:", error.message);
+      return [];
+    }
+    const out: CalendarStructureItem[] = [];
+    for (const row of data ?? []) {
+      const r = row as Record<string, unknown>;
+      const id = String(r.id);
+      if (tombstoned.has(id)) continue;
+      out.push({
+        id,
+        sourceRecordId: String(r.source_record_id ?? ""),
+        summary: typeof r.summary === "string" ? r.summary : null,
+        start: typeof r.start_at === "string" ? r.start_at : null,
+        end: typeof r.end_at === "string" ? r.end_at : null,
+        attendeeCount:
+          typeof r.attendee_count === "number" ? r.attendee_count : 0,
+        hasDescription: Boolean(r.has_description),
+        hasAttachments: Boolean(r.has_attachments),
+      });
+    }
+    return out;
   }
 
   async getFileSummary(fileId: string): Promise<FileSummary | null> {
@@ -1044,13 +1179,14 @@ export class SupabaseStore implements CortexStore {
             limit: capped * 3,
             kinds: effectiveKinds,
           });
-      const records = trimmed
-        ? await this.searchRecords(trimmed, {
-            limit: capped,
-            since: options.since,
-            until: options.until,
-          })
-        : { hits: [] as import("./types.js").RecordHit[], distillates: [] };
+      const records =
+        this.credential === "mirror" || !trimmed
+          ? { hits: [] as import("./types.js").RecordHit[], distillates: [] }
+          : await this.searchRecords(trimmed, {
+              limit: capped,
+              since: options.since,
+              until: options.until,
+            });
 
       for (const d of distillates) {
         if (!distillateMatchesLenses(d, options)) continue;

@@ -99,6 +99,6 @@ curl "$SUPABASE_URL/rest/v1/records?select=id&limit=1" \
   -H "Authorization: Bearer $SUPABASE_MIRROR_KEY"
 ```
 
-7. **Next (code):** wire `/mcp` to `SUPABASE_MIRROR_KEY` and keep `/mcp/ops` + `/v1/*` compilers on `SUPABASE_SERVICE_ROLE_KEY`. Until that lands, setting the env var is prep only — Mirror tools still use service role server-side.
+7. **Wire MCP (done when deployed):** `/mcp` uses `SUPABASE_MIRROR_KEY`; `/mcp/ops` + `/v1/*` compilers use `SUPABASE_SERVICE_ROLE_KEY`. Evidence broker raw reads use the vault client after policy. Health exposes `credentials.mirror` / `credentials.vault`.
 
 The MCP server (`apps/mcp-server`, [docs/mcp.md](mcp.md)) uses Supabase when `SUPABASE_URL` + a key are set; otherwise it runs in **fixture** mode so tools work without a linked project.
