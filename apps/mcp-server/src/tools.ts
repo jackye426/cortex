@@ -78,8 +78,10 @@ export function registerCortexTools(
       textResult({
         profile,
         playbook,
+        credential: store.credential,
         evidenceRule:
           "Distillates by default. Raw evidence only via retrieve_supporting_evidence under deterministic policy + capabilities.",
+        firstMove: "Follow the playbook above; start with list_recent_work or search_memory for ordinary questions.",
       }),
   );
 
