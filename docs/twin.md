@@ -49,6 +49,11 @@ pnpm quality-gate -- --suite=all --fixture
 # HTTP: POST /v1/twin { "job": "interest-map" }
 # Adapter: reading-interest (Calibre → reading_interest_digest)
 
+# I3–I6 product loop (weekly pipeline)
+# MCP: list_hypotheses / confirm_hypothesis / get_weekly_mirror / list_open_questions
+#      how_have_i_changed / intrapersonal_metrics / propose_experiment
+pnpm intrapersonal-metrics -- --fixture --windowDays=30
+
 # Intrapersonal S3–S6 — hypotheses, self-model v2, weekly mirror, experiments, diffs
 # MCP: list_hypotheses / propose_hypothesis / confirm_hypothesis / reject_hypothesis
 #      get_self_model / refresh_self_model / get_weekly_mirror / list_open_questions

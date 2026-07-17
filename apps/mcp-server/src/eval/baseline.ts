@@ -90,4 +90,4 @@ export const EVAL_YOUTUBE_SHAPES = [
 
 export const SESSION_COMPILER_VERSION = "session-v2";
 export const YOUTUBE_COMPILER_VERSION = "youtube-interest-v1";
-export const PORTRAIT_COMPILER_VERSION = "portrait-v1";
+export const PORTRAIT_COMPILER_VERSION = "portrait-v2";
