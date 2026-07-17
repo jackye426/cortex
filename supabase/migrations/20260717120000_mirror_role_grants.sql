@@ -43,8 +43,25 @@ revoke all on table public.sync_checkpoints from cortex_mirror;
 revoke all on table public.api_tokens from cortex_mirror;
 
 -- ---------------------------------------------------------------------------
--- 2. RPCs: grant search_memory; revoke search_records; Mirror skips records
+-- 2. RPCs: drop old overloads, recreate Mirror-safe search_memory
+-- Two historical signatures exist (6-arg + 9-arg). Drop all, then one.
 -- ---------------------------------------------------------------------------
+do $$
+declare
+  r record;
+begin
+  -- Drop every cortex_search_memory overload (6-arg + 9-arg historically).
+  for r in
+    select p.oid::regprocedure as proc
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'cortex_search_memory'
+  loop
+    execute format('drop function %s', r.proc);
+  end loop;
+end
+$$;
+
 do $$
 declare
   r record;
@@ -53,24 +70,20 @@ begin
     select p.oid::regprocedure as proc
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and p.proname = 'cortex_search_memory'
-  loop
-    execute format('grant execute on function %s to cortex_mirror', r.proc);
-  end loop;
-
-  for r in
-    select p.oid::regprocedure as proc
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = 'cortex_search_records'
   loop
-    execute format('revoke all on function %s from cortex_mirror', r.proc);
+    begin
+      execute format('revoke all on function %s from cortex_mirror', r.proc);
+    exception
+      when undefined_object then null;
+      when insufficient_privilege then null;
+    end;
   end loop;
 end
 $$;
 
--- SECURITY DEFINER so the function can exist, but skip raw records when the
--- JWT role is cortex_mirror (auth.role() from PostgREST / Supabase).
+-- SECURITY DEFINER so the function body can touch records for vault roles,
+-- but skip raw records when JWT role is cortex_mirror (auth.role()).
 create or replace function public.cortex_search_memory(
   p_owner_id uuid default null,
   p_query text default '',
@@ -211,8 +224,23 @@ begin
 end;
 $$;
 
-comment on function public.cortex_search_memory is
-  'Cortex search_memory: distillates + (non-Mirror) records keyword; Mirror JWT skips raw records.';
+do $$
+declare
+  proc regprocedure;
+begin
+  select p.oid::regprocedure into strict proc
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'cortex_search_memory';
+
+  execute format(
+    'comment on function %s is %L',
+    proc,
+    'Cortex search_memory: distillates + (non-Mirror) records keyword; Mirror JWT skips raw records.'
+  );
+  execute format('grant execute on function %s to cortex_mirror', proc);
+end
+$$;
 
 comment on role cortex_mirror is
   'Cortex Mirror API role — distillates/sanitised views only; no raw vault table SELECT.';
