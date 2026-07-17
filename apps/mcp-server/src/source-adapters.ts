@@ -364,8 +364,11 @@ export const emailThreadAdapter: SourceAdapter = {
     "What open loops am I carrying in email?",
   ],
   async run(ctx) {
-    const maxThreads = Math.max(1, Math.min(ctx.limit ?? 8, 20));
-    const records = await ctx.store.listRecordsByType("email_message", 400);
+    const maxThreads = Math.max(1, Math.min(ctx.limit ?? 8, 100));
+    const records = await ctx.store.listRecordsByType(
+      "email_message",
+      Math.min(2000, Math.max(400, maxThreads * 20)),
+    );
     const filtered = records.filter((r) => !isNoisyEmail(r));
     const byThread = groupBy(
       filtered,
@@ -595,10 +598,10 @@ export const githubOutcomeAdapter: SourceAdapter = {
     "What PRs stalled this month?",
   ],
   async run(ctx) {
-    const maxItems = Math.max(1, Math.min(ctx.limit ?? 15, 40));
+    const maxItems = Math.max(1, Math.min(ctx.limit ?? 15, 100));
     const [prs, issues] = await Promise.all([
-      ctx.store.listRecordsByType("github_pr", 200),
-      ctx.store.listRecordsByType("github_issue", 200),
+      ctx.store.listRecordsByType("github_pr", 500),
+      ctx.store.listRecordsByType("github_issue", 500),
     ]);
     const items = [...prs, ...issues]
       .filter((r) => {
@@ -820,14 +823,14 @@ export const calendarEventAdapter: SourceAdapter = {
     "Where did calendar time diverge from session effort?",
   ],
   async run(ctx) {
-    const maxItems = Math.max(1, Math.min(ctx.limit ?? 15, 40));
+    const maxItems = Math.max(1, Math.min(ctx.limit ?? 15, 100));
     const until = new Date().toISOString();
-    const since = new Date(Date.now() - 60 * 86400000).toISOString();
+    const since = new Date(Date.now() - 180 * 86400000).toISOString();
     const records = await ctx.store.listRecordsByTypeInRange(
       "calendar_event",
       since,
       until,
-      400,
+      1000,
     );
     const kept = records
       .filter(isKeptMeeting)
@@ -1098,14 +1101,14 @@ export const driveFileAdapter: SourceAdapter = {
     "What docs did I revise while working on DocMap/Cortex?",
   ],
   async run(ctx) {
-    const maxItems = Math.max(1, Math.min(ctx.limit ?? 15, 40));
+    const maxItems = Math.max(1, Math.min(ctx.limit ?? 15, 80));
     const until = new Date().toISOString();
-    const since = new Date(Date.now() - 120 * 86400000).toISOString();
+    const since = new Date(Date.now() - 365 * 86400000).toISOString();
     const records = await ctx.store.listRecordsByTypeInRange(
       "drive_file",
       since,
       until,
-      400,
+      1000,
     );
 
     const sensitiveReasons: Record<string, number> = {};

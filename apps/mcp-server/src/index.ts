@@ -393,14 +393,17 @@ app.post("/v1/source-adapter", async (c) => {
   let adapter = "";
   let dryRun = false;
   let limit = 40;
+  let force = false;
   try {
     const body = (await c.req.json()) as {
       adapter?: string;
       dryRun?: boolean;
       limit?: number;
+      force?: boolean;
     };
     adapter = typeof body.adapter === "string" ? body.adapter : "";
     dryRun = Boolean(body.dryRun);
+    force = Boolean(body.force);
     if (typeof body.limit === "number" && body.limit > 0) {
       limit = Math.floor(body.limit);
     }
@@ -421,11 +424,15 @@ app.post("/v1/source-adapter", async (c) => {
     token: expected,
     route: "/v1/source-adapter",
     method: "POST",
-    metadata: { adapter, dryRun, limit },
+    metadata: { adapter, dryRun, limit, force },
   });
 
   try {
-    const result = await runSourceAdapter(vaultStore, adapter, { dryRun, limit });
+    const result = await runSourceAdapter(vaultStore, adapter, {
+      dryRun,
+      limit,
+      force,
+    });
     return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json(
