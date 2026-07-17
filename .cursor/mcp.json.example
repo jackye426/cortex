@@ -5,6 +5,12 @@
       "headers": {
         "Authorization": "Bearer YOUR_CORTEX_MCP_TOKEN"
       }
+    },
+    "cortex-ops": {
+      "url": "https://cortexmcp-server-production-1c59.up.railway.app/mcp/ops",
+      "headers": {
+        "Authorization": "Bearer YOUR_CORTEX_OPS_MCP_TOKEN"
+      }
     }
   }
 }

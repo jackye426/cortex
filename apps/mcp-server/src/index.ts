@@ -11,12 +11,13 @@
 import { serve } from "@hono/node-server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { runDistillateWorker } from "./distillate.js";
 import {
   loadDotEnv,
   resolveMcpToken,
+  resolveOpsMcpToken,
 } from "./env.js";
 import { logMcpAudit } from "./audit.js";
 import {
@@ -27,8 +28,9 @@ import {
   seedEntitiesFromDistillates,
 } from "./project-brief.js";
 import { createStore } from "./store/index.js";
-import { registerCortexTools } from "./tools.js";
+import { createCortexMcpServer } from "./tools.js";
 import { askMirror } from "./analyst.js";
+import { playbookForProfile, type McpToolProfile } from "./mcp-profile.js";
 import { runYoutubeInterestDigest } from "./youtube-digest.js";
 import { refreshPortrait } from "./portrait.js";
 import { runSourceAdapter, SOURCE_ADAPTERS } from "./source-adapters.js";
@@ -48,18 +50,11 @@ function requireBearer(
   return token.length > 0 && token === expected.trim();
 }
 
-function createServer(): McpServer {
-  const server = new McpServer(
-    {
-      name: "cortex",
-      version: "0.0.0",
-    },
-    {
-      instructions: `Cortex retrieval playbook: list_recent_work for what you're building (sessions/github/email; calendar excluded); get_calendar_range for schedule; search_records for payload+distillate keywords; search_memory for semantic/insight with mode=operational|reflective|both; ask_mirror for cited synthesis; get_session for deep evidence; cortex_help for full playbook.`,
-    },
-  );
-  registerCortexTools(server, store);
-  return server;
+function createServer(
+  profile: McpToolProfile,
+  auditToken: string,
+): McpServer {
+  return createCortexMcpServer(store, { profile, auditToken });
 }
 
 const app = new Hono();
@@ -85,6 +80,11 @@ app.get("/health", (c) =>
     ok: true,
     service: "cortex-mcp",
     store: store.mode,
+    endpoints: {
+      mirror: "/mcp",
+      ops: "/mcp/ops",
+    },
+    privilege: "distillates-default; raw via evidence broker",
   }),
 );
 
@@ -546,13 +546,18 @@ app.post("/v1/twin-pipeline", async (c) => {
   return c.json({ ok: true, ...result });
 });
 
-app.all("/mcp", async (c) => {
-  const expected = resolveMcpToken();
+async function handleMcpEndpoint(
+  c: Context,
+  profile: McpToolProfile,
+  expected: string | undefined,
+): Promise<Response> {
   if (!expected) {
     return c.json(
       {
         error:
-          "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
+          profile === "ops"
+            ? "server misconfigured: set CORTEX_OPS_MCP_TOKEN or CORTEX_MCP_TOKEN"
+            : "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN",
       },
       500,
     );
@@ -561,21 +566,30 @@ app.all("/mcp", async (c) => {
     return c.json({ error: "unauthorized" }, 401);
   }
 
+  const route = profile === "ops" ? "/mcp/ops" : "/mcp";
   void logMcpAudit({
     token: expected,
-    route: "/mcp",
+    route,
     method: c.req.method,
+    metadata: { endpoint: profile },
   });
 
-  // Stateless: fresh transport + server per request (Hono web-standard path).
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   });
-  const server = createServer();
+  const server = createServer(profile, expected);
   await server.connect(transport);
   return transport.handleRequest(c.req.raw);
-});
+}
+
+/** Default Mirror endpoint — no raw vault tools. */
+app.all("/mcp", async (c) => handleMcpEndpoint(c, "mirror", resolveMcpToken()));
+
+/** Ops endpoint — vault tools + restricted capability issuance. */
+app.all("/mcp/ops", async (c) =>
+  handleMcpEndpoint(c, "ops", resolveOpsMcpToken()),
+);
 
 const port = Number(process.env.MCP_PORT ?? process.env.PORT ?? 8790);
 
@@ -584,7 +598,9 @@ serve({ fetch: app.fetch, port }, (info) => {
     `Cortex MCP listening on http://localhost:${info.port} (store=${store.mode})`,
   );
   console.info(`  health: http://localhost:${info.port}/health`);
-  console.info(`  mcp:    http://localhost:${info.port}/mcp`);
+  console.info(`  mirror: http://localhost:${info.port}/mcp`);
+  console.info(`  ops:    http://localhost:${info.port}/mcp/ops`);
+  console.info(`  playbook(mirror): ${playbookForProfile("mirror").slice(0, 60)}…`);
 });
 
 export { app, store };

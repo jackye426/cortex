@@ -40,6 +40,16 @@ export function resolveMcpToken(): string | undefined {
   return ingest || undefined;
 }
 
+/**
+ * Ops MCP endpoint token. Falls back to Mirror token so single-token local
+ * setups still work; production should set CORTEX_OPS_MCP_TOKEN separately.
+ */
+export function resolveOpsMcpToken(): string | undefined {
+  const ops = process.env.CORTEX_OPS_MCP_TOKEN?.trim();
+  if (ops) return ops;
+  return resolveMcpToken();
+}
+
 export function isSupabaseConfigured(): boolean {
   const url = process.env.SUPABASE_URL?.trim();
   const key =
