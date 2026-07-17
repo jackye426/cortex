@@ -21,7 +21,6 @@ import {
 } from "./env.js";
 import { logMcpAudit } from "./audit.js";
 import {
-  refreshSelfModel,
   runEmbedBackfill,
   runPriorityVsActual,
   runProjectBriefJob,
@@ -40,6 +39,9 @@ import { runInsightQualityFixtures } from "./eval/insight-quality.js";
 import { extractObservations } from "./intrapersonal/extract-observations.js";
 import { auditSourceCoverage } from "./intrapersonal/source-health.js";
 import { refreshInterestMap } from "./intrapersonal/interest-map.js";
+import { refreshWeeklyMirror } from "./intrapersonal/weekly-mirror.js";
+import { snapshotOpenQuestions } from "./intrapersonal/open-questions.js";
+import { compileSelfModelVersion } from "./intrapersonal/self-model-v2.js";
 loadDotEnv();
 
 const vaultStore = createStore("vault");
@@ -303,8 +305,14 @@ app.post("/v1/twin", async (c) => {
     return c.json({ ok: true, job, ...result });
   }
   if (job === "self-model") {
-    const row = await refreshSelfModel(vaultStore, { dryRun });
-    return c.json({ ok: true, job, distillate: row });
+    const compiled = await compileSelfModelVersion(vaultStore, { dryRun });
+    return c.json({
+      ok: true,
+      job,
+      distillate: compiled.distillate,
+      version: compiled.version,
+      written: compiled.written,
+    });
   }
   if (job === "portrait") {
     const result = await refreshPortrait(vaultStore, { dryRun });
@@ -322,6 +330,14 @@ app.post("/v1/twin", async (c) => {
     const result = await refreshInterestMap(vaultStore, { dryRun });
     return c.json({ ok: true, job, ...result });
   }
+  if (job === "weekly-mirror") {
+    const result = await refreshWeeklyMirror(vaultStore, { dryRun });
+    return c.json({ ok: true, job, ...result });
+  }
+  if (job === "open-questions") {
+    const result = await snapshotOpenQuestions(vaultStore, { dryRun });
+    return c.json({ ok: true, job, ...result });
+  }
   return c.json(
     {
       error: "unknown job",
@@ -334,6 +350,8 @@ app.post("/v1/twin", async (c) => {
         "youtube-digest",
         "extract-observations",
         "interest-map",
+        "weekly-mirror",
+        "open-questions",
       ],
     },
     400,

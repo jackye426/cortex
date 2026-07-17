@@ -1320,8 +1320,12 @@ When this demo is green, Cortex has completed the shift from “here is what you
 | **S0** | Done on this branch — types, insight-quality fixtures, docs pointers |
 | **S1** | Done on this branch — observations, balanced retrieve, circular policy, source audit, nightly extract |
 | **S2** | Done on this branch — interests, affect proxies, reading digest, Interest Map |
-| S3–S7 | Not started |
+| **S3** | Done on this branch — hypothesis ledger, ability-model, self-model v2 + versions, confirm/reject/refine |
+| **S4** | Done on this branch — weekly mirror, open questions, insight cards (MCP) |
+| **S5** | Done on this branch — decisions/outcomes tables, experiments, calibration, cycle detect |
+| **S6** | Done on this branch — self_model_diffs, change_report, how_have_i_changed, VIR metrics |
+| S7 | Partial — metrics MCP tool shipped; portrait-v2 / optional web UI deferred |
 
 ### Immediate next implementation action
 
-After S2 merge and C2 gates green, continue **S3** (hypothesis ledger + self-model v2).
+Polish **S7** (portrait-v2 from structured model, metrics CLI, optional UI) and harden C3–C6 eval gates on fixtures.

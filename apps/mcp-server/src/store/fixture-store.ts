@@ -30,37 +30,75 @@ import type {
   AffectSignalRow,
   CalendarEventItem,
   CalendarStructureItem,
+  ClaimEvidenceRow,
   CortexStore,
+  DecisionOutcomeRow,
+  DecisionRow,
   DistillateRow,
   EmailThread,
   EntityLinkRow,
   EntityRow,
+  ExperimentRow,
   FileSummary,
+  HypothesisRow,
   InsertAffectSignalInput,
+  InsertClaimEvidenceInput,
+  InsertDecisionOutcomeInput,
+  InsertInsightVerdictInput,
+  InsertSelfModelDiffInput,
+  InsertSelfModelVersionInput,
+  InsightVerdictRow,
   InterestRow,
+  IntrapersonalRecordRow,
   LinkEntityInput,
+  ListDecisionsOptions,
+  ListExperimentsOptions,
+  ListHypothesesOptions,
+  ListInsightVerdictsOptions,
   ListInterestsOptions,
+  ListIntrapersonalRecordsOptions,
   ListObservationsOptions,
+  ListPredictionEventsOptions,
   ListRecentWorkOptions,
+  ListSelfModelDiffsOptions,
+  ListSelfModelVersionsOptions,
   MemorySearchHit,
   MemorySearchOptions,
   MemorySearchResult,
   ObservationRow,
+  PredictionEventRow,
   RecentWorkItem,
   RecordHit,
   SearchRecordsOptions,
   SearchRecordsResult,
+  SelfModelDiffRow,
+  SelfModelVersionRow,
   SessionDetail,
   SessionEnvelopeInput,
   StoreCredential,
+  UpsertDecisionInput,
   UpsertEntityInput,
+  UpsertExperimentInput,
+  UpsertHypothesisInput,
   UpsertInterestInput,
+  UpsertIntrapersonalRecordInput,
   UpsertObservationInput,
+  UpsertPredictionEventInput,
 } from "./types.js";
 
 const fixtureObservations: ObservationRow[] = [];
 const fixtureInterests: InterestRow[] = [];
 const fixtureAffectSignals: AffectSignalRow[] = [];
+const fixtureHypotheses: HypothesisRow[] = [];
+const fixtureIntrapersonalRecords: IntrapersonalRecordRow[] = [];
+const fixtureSelfModelVersions: SelfModelVersionRow[] = [];
+const fixtureInsightVerdicts: InsightVerdictRow[] = [];
+const fixtureClaimEvidence: ClaimEvidenceRow[] = [];
+const fixtureDecisions: DecisionRow[] = [];
+const fixtureDecisionOutcomes: DecisionOutcomeRow[] = [];
+const fixtureExperiments: ExperimentRow[] = [];
+const fixturePredictionEvents: PredictionEventRow[] = [];
+const fixtureSelfModelDiffs: SelfModelDiffRow[] = [];
 
 /**
  * In-memory fixture store — used when Supabase is not configured.
@@ -632,6 +670,494 @@ export class FixtureStore implements CortexStore {
         if (options.since && (s.occurredAt ?? "") < options.since) return false;
         return true;
       })
+      .slice(0, limit);
+  }
+
+  async upsertHypothesis(input: UpsertHypothesisInput): Promise<HypothesisRow> {
+    const now = new Date().toISOString();
+    if (input.id) {
+      const existing = fixtureHypotheses.find((h) => h.id === input.id);
+      if (existing) {
+        existing.claim = input.claim;
+        existing.whyItMatters = input.whyItMatters ?? existing.whyItMatters;
+        existing.state = input.state ?? existing.state;
+        existing.confidence = input.confidence ?? existing.confidence;
+        existing.sourceDiversity =
+          input.sourceDiversity ?? existing.sourceDiversity;
+        existing.falsifiers = input.falsifiers ?? existing.falsifiers;
+        existing.alternativeExplanations =
+          input.alternativeExplanations ?? existing.alternativeExplanations;
+        existing.domains = input.domains ?? existing.domains;
+        existing.lastTestedAt =
+          input.lastTestedAt !== undefined
+            ? input.lastTestedAt
+            : existing.lastTestedAt;
+        existing.origin = input.origin ?? existing.origin;
+        existing.assistantWeight =
+          input.assistantWeight ?? existing.assistantWeight;
+        existing.priorHypothesisId =
+          input.priorHypothesisId !== undefined
+            ? input.priorHypothesisId
+            : existing.priorHypothesisId;
+        existing.metadata = { ...existing.metadata, ...(input.metadata ?? {}) };
+        existing.updatedAt = now;
+        return existing;
+      }
+    }
+    const created: HypothesisRow = {
+      id: input.id ?? randomUUID(),
+      claim: input.claim,
+      whyItMatters: input.whyItMatters ?? "",
+      state: input.state ?? "emerging",
+      confidence: input.confidence ?? 0.4,
+      sourceDiversity: input.sourceDiversity ?? 0,
+      falsifiers: input.falsifiers ?? [],
+      alternativeExplanations: input.alternativeExplanations ?? [],
+      domains: input.domains ?? [],
+      lastTestedAt: input.lastTestedAt ?? null,
+      origin: input.origin ?? "user",
+      assistantWeight: input.assistantWeight ?? 0.5,
+      priorHypothesisId: input.priorHypothesisId ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    fixtureHypotheses.push(created);
+    return created;
+  }
+
+  async getHypothesis(id: string): Promise<HypothesisRow | null> {
+    return fixtureHypotheses.find((h) => h.id === id) ?? null;
+  }
+
+  async listHypotheses(
+    options: ListHypothesesOptions = {},
+  ): Promise<HypothesisRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureHypotheses
+      .filter((h) => {
+        if (options.state && h.state !== options.state) return false;
+        if (options.origin && h.origin !== options.origin) return false;
+        if (
+          options.minConfidence != null &&
+          h.confidence < options.minConfidence
+        ) {
+          return false;
+        }
+        if (options.domain && !h.domains.includes(options.domain)) return false;
+        return true;
+      })
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit);
+  }
+
+  async upsertIntrapersonalRecord(
+    input: UpsertIntrapersonalRecordInput,
+  ): Promise<IntrapersonalRecordRow> {
+    const now = new Date().toISOString();
+    if (input.id) {
+      const existing = fixtureIntrapersonalRecords.find((r) => r.id === input.id);
+      if (existing) {
+        existing.recordKind = input.recordKind;
+        existing.title = input.title;
+        existing.statement = input.statement;
+        existing.epistemicType = input.epistemicType ?? existing.epistemicType;
+        existing.confidence = input.confidence ?? existing.confidence;
+        existing.status = input.status ?? existing.status;
+        existing.context = input.context ?? existing.context;
+        existing.behaviour = input.behaviour ?? existing.behaviour;
+        existing.outcome = input.outcome ?? existing.outcome;
+        existing.origin = input.origin ?? existing.origin;
+        existing.hypothesisId =
+          input.hypothesisId !== undefined
+            ? input.hypothesisId
+            : existing.hypothesisId;
+        existing.interestId =
+          input.interestId !== undefined ? input.interestId : existing.interestId;
+        existing.metadata = { ...existing.metadata, ...(input.metadata ?? {}) };
+        existing.updatedAt = now;
+        return existing;
+      }
+    }
+    const created: IntrapersonalRecordRow = {
+      id: input.id ?? randomUUID(),
+      recordKind: input.recordKind,
+      title: input.title,
+      statement: input.statement,
+      epistemicType: input.epistemicType ?? "interpretation",
+      confidence: input.confidence ?? 0.5,
+      status: input.status ?? "active",
+      context: input.context ?? {},
+      behaviour: input.behaviour ?? {},
+      outcome: input.outcome ?? {},
+      origin: input.origin ?? "inference",
+      hypothesisId: input.hypothesisId ?? null,
+      interestId: input.interestId ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    fixtureIntrapersonalRecords.push(created);
+    return created;
+  }
+
+  async listIntrapersonalRecords(
+    options: ListIntrapersonalRecordsOptions = {},
+  ): Promise<IntrapersonalRecordRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureIntrapersonalRecords
+      .filter((r) => {
+        if (options.recordKind && r.recordKind !== options.recordKind) {
+          return false;
+        }
+        if (options.status && r.status !== options.status) return false;
+        if (options.hypothesisId && r.hypothesisId !== options.hypothesisId) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, limit);
+  }
+
+  async insertSelfModelVersion(
+    input: InsertSelfModelVersionInput,
+  ): Promise<SelfModelVersionRow> {
+    const created: SelfModelVersionRow = {
+      id: randomUUID(),
+      version: input.version,
+      summary: input.summary,
+      compiledFrom: input.compiledFrom ?? {},
+      strengths: input.strengths ?? [],
+      limitations: input.limitations ?? [],
+      motives: input.motives ?? [],
+      tensions: input.tensions ?? [],
+      identityDevelopment: input.identityDevelopment ?? [],
+      openQuestionIds: input.openQuestionIds ?? [],
+      supersedesId: input.supersedesId ?? null,
+      userCorrections: input.userCorrections ?? [],
+      createdAt: new Date().toISOString(),
+    };
+    fixtureSelfModelVersions.push(created);
+    return created;
+  }
+
+  async listSelfModelVersions(
+    options: ListSelfModelVersionsOptions = {},
+  ): Promise<SelfModelVersionRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
+    return [...fixtureSelfModelVersions]
+      .sort((a, b) => b.version - a.version)
+      .slice(0, limit);
+  }
+
+  async getLatestSelfModelVersion(): Promise<SelfModelVersionRow | null> {
+    const rows = await this.listSelfModelVersions({ limit: 1 });
+    return rows[0] ?? null;
+  }
+
+  async insertInsightVerdict(
+    input: InsertInsightVerdictInput,
+  ): Promise<InsightVerdictRow> {
+    const created: InsightVerdictRow = {
+      id: randomUUID(),
+      insightId: input.insightId,
+      insightKind: input.insightKind,
+      verdict: input.verdict,
+      note: input.note ?? null,
+      nonObvious: input.nonObvious ?? null,
+      useful: input.useful ?? null,
+      createdAt: new Date().toISOString(),
+    };
+    fixtureInsightVerdicts.push(created);
+    return created;
+  }
+
+  async listInsightVerdicts(
+    options: ListInsightVerdictsOptions = {},
+  ): Promise<InsightVerdictRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureInsightVerdicts
+      .filter((v) => {
+        if (options.insightId && v.insightId !== options.insightId) return false;
+        if (options.since && v.createdAt < options.since) return false;
+        return true;
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
+  async insertClaimEvidence(
+    input: InsertClaimEvidenceInput,
+  ): Promise<ClaimEvidenceRow> {
+    const created: ClaimEvidenceRow = {
+      id: randomUUID(),
+      claimId: input.claimId,
+      claimKind: input.claimKind,
+      observationId: input.observationId ?? null,
+      evidence: input.evidence,
+      polarity: input.polarity,
+      createdAt: new Date().toISOString(),
+    };
+    fixtureClaimEvidence.push(created);
+    return created;
+  }
+
+  async listClaimEvidence(options: {
+    claimId?: string;
+    claimKind?: string;
+    limit?: number;
+  } = {}): Promise<ClaimEvidenceRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureClaimEvidence
+      .filter((e) => {
+        if (options.claimId && e.claimId !== options.claimId) return false;
+        if (options.claimKind && e.claimKind !== options.claimKind) return false;
+        return true;
+      })
+      .slice(0, limit);
+  }
+
+  async upsertDecision(input: UpsertDecisionInput): Promise<DecisionRow> {
+    const now = new Date().toISOString();
+    if (input.id) {
+      const existing = fixtureDecisions.find((d) => d.id === input.id);
+      if (existing) {
+        existing.title = input.title;
+        existing.statement = input.statement ?? existing.statement;
+        existing.decidedAt = input.decidedAt ?? existing.decidedAt;
+        existing.expectedOutcome =
+          input.expectedOutcome !== undefined
+            ? input.expectedOutcome
+            : existing.expectedOutcome;
+        existing.relatedHypothesisIds =
+          input.relatedHypothesisIds ?? existing.relatedHypothesisIds;
+        existing.relatedEntityKeys =
+          input.relatedEntityKeys ?? existing.relatedEntityKeys;
+        existing.source = input.source ?? existing.source;
+        existing.distillateId =
+          input.distillateId !== undefined
+            ? input.distillateId
+            : existing.distillateId;
+        existing.metadata = { ...existing.metadata, ...(input.metadata ?? {}) };
+        return existing;
+      }
+    }
+    const created: DecisionRow = {
+      id: input.id ?? randomUUID(),
+      title: input.title,
+      statement: input.statement ?? "",
+      decidedAt: input.decidedAt ?? now,
+      expectedOutcome: input.expectedOutcome ?? null,
+      relatedHypothesisIds: input.relatedHypothesisIds ?? [],
+      relatedEntityKeys: input.relatedEntityKeys ?? [],
+      source: input.source ?? "user",
+      distillateId: input.distillateId ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: now,
+    };
+    fixtureDecisions.push(created);
+    return created;
+  }
+
+  async listDecisionsTable(
+    options: ListDecisionsOptions = {},
+  ): Promise<DecisionRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureDecisions
+      .filter((d) => {
+        if (options.since && d.decidedAt < options.since) return false;
+        return true;
+      })
+      .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))
+      .slice(0, limit);
+  }
+
+  async insertDecisionOutcome(
+    input: InsertDecisionOutcomeInput,
+  ): Promise<DecisionOutcomeRow> {
+    const created: DecisionOutcomeRow = {
+      id: randomUUID(),
+      decisionId: input.decisionId,
+      recordedAt: input.recordedAt ?? new Date().toISOString(),
+      actualOutcome: input.actualOutcome,
+      alignedWithExpected: input.alignedWithExpected ?? null,
+      evidence: input.evidence ?? [],
+      learning: input.learning ?? null,
+      metadata: input.metadata ?? {},
+    };
+    fixtureDecisionOutcomes.push(created);
+    return created;
+  }
+
+  async listDecisionOutcomes(options: {
+    decisionId?: string;
+    limit?: number;
+  } = {}): Promise<DecisionOutcomeRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureDecisionOutcomes
+      .filter((o) => {
+        if (options.decisionId && o.decisionId !== options.decisionId) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))
+      .slice(0, limit);
+  }
+
+  async upsertExperiment(
+    input: UpsertExperimentInput,
+  ): Promise<ExperimentRow> {
+    const now = new Date().toISOString();
+    if (input.id) {
+      const existing = fixtureExperiments.find((e) => e.id === input.id);
+      if (existing) {
+        existing.hypothesisId = input.hypothesisId;
+        existing.title = input.title;
+        existing.protocol = input.protocol;
+        existing.status = input.status ?? existing.status;
+        existing.proposedAt = input.proposedAt ?? existing.proposedAt;
+        existing.dueAt =
+          input.dueAt !== undefined ? input.dueAt : existing.dueAt;
+        existing.completedAt =
+          input.completedAt !== undefined
+            ? input.completedAt
+            : existing.completedAt;
+        existing.resultSummary =
+          input.resultSummary !== undefined
+            ? input.resultSummary
+            : existing.resultSummary;
+        existing.resultPolarity =
+          input.resultPolarity !== undefined
+            ? input.resultPolarity
+            : existing.resultPolarity;
+        existing.evidence = input.evidence ?? existing.evidence;
+        existing.metadata = { ...existing.metadata, ...(input.metadata ?? {}) };
+        return existing;
+      }
+    }
+    const created: ExperimentRow = {
+      id: input.id ?? randomUUID(),
+      hypothesisId: input.hypothesisId,
+      title: input.title,
+      protocol: input.protocol,
+      status: input.status ?? "proposed",
+      proposedAt: input.proposedAt ?? now,
+      dueAt: input.dueAt ?? null,
+      completedAt: input.completedAt ?? null,
+      resultSummary: input.resultSummary ?? null,
+      resultPolarity: input.resultPolarity ?? null,
+      evidence: input.evidence ?? [],
+      metadata: input.metadata ?? {},
+    };
+    fixtureExperiments.push(created);
+    return created;
+  }
+
+  async listExperiments(
+    options: ListExperimentsOptions = {},
+  ): Promise<ExperimentRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureExperiments
+      .filter((e) => {
+        if (options.status && e.status !== options.status) return false;
+        if (options.hypothesisId && e.hypothesisId !== options.hypothesisId) {
+          return false;
+        }
+        if (options.dueBefore && (e.dueAt ?? "9999") > options.dueBefore) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.proposedAt.localeCompare(a.proposedAt))
+      .slice(0, limit);
+  }
+
+  async upsertPredictionEvent(
+    input: UpsertPredictionEventInput,
+  ): Promise<PredictionEventRow> {
+    const now = new Date().toISOString();
+    if (input.id) {
+      const existing = fixturePredictionEvents.find((p) => p.id === input.id);
+      if (existing) {
+        existing.claimId = input.claimId;
+        existing.claimKind = input.claimKind ?? existing.claimKind;
+        existing.domain =
+          input.domain !== undefined ? input.domain : existing.domain;
+        existing.predicted = input.predicted;
+        existing.actual =
+          input.actual !== undefined ? input.actual : existing.actual;
+        existing.correct =
+          input.correct !== undefined ? input.correct : existing.correct;
+        existing.resolvedAt =
+          input.resolvedAt !== undefined
+            ? input.resolvedAt
+            : existing.resolvedAt;
+        return existing;
+      }
+    }
+    const created: PredictionEventRow = {
+      id: input.id ?? randomUUID(),
+      claimId: input.claimId,
+      claimKind: input.claimKind ?? "hypothesis",
+      domain: input.domain ?? null,
+      predicted: input.predicted,
+      actual: input.actual ?? null,
+      correct: input.correct ?? null,
+      createdAt: now,
+      resolvedAt: input.resolvedAt ?? null,
+    };
+    fixturePredictionEvents.push(created);
+    return created;
+  }
+
+  async listPredictionEvents(
+    options: ListPredictionEventsOptions = {},
+  ): Promise<PredictionEventRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixturePredictionEvents
+      .filter((p) => {
+        if (options.claimId && p.claimId !== options.claimId) return false;
+        if (options.since && p.createdAt < options.since) return false;
+        return true;
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
+  async insertSelfModelDiff(
+    input: InsertSelfModelDiffInput,
+  ): Promise<SelfModelDiffRow> {
+    const created: SelfModelDiffRow = {
+      id: randomUUID(),
+      fromVersionId: input.fromVersionId ?? null,
+      toVersionId: input.toVersionId,
+      stable: input.stable ?? [],
+      emerging: input.emerging ?? [],
+      fading: input.fading ?? [],
+      environmentShifts: input.environmentShifts ?? [],
+      confirmedPredictions: input.confirmedPredictions ?? [],
+      disprovedPredictions: input.disprovedPredictions ?? [],
+      eventAnchors: input.eventAnchors ?? [],
+      createdAt: new Date().toISOString(),
+    };
+    fixtureSelfModelDiffs.push(created);
+    return created;
+  }
+
+  async listSelfModelDiffs(
+    options: ListSelfModelDiffsOptions = {},
+  ): Promise<SelfModelDiffRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
+    return fixtureSelfModelDiffs
+      .filter((d) => {
+        if (options.toVersionId && d.toVersionId !== options.toVersionId) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, limit);
   }
 }

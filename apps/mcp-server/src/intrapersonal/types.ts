@@ -256,3 +256,412 @@ export interface InterestMapPayload {
   sections: InterestMapSection[];
   notes: string[];
 }
+
+/** Intrapersonal record kinds (self-model atoms). */
+export type IntrapersonalRecordKind =
+  | "interest_ref"
+  | "value"
+  | "energy_pattern"
+  | "strength"
+  | "limitation"
+  | "motive"
+  | "avoidance_pattern"
+  | "emotional_trigger"
+  | "relationship_pattern"
+  | "identity_aspiration"
+  | "decision_tendency"
+  | "coping_strategy"
+  | "recurring_conflict"
+  | "conviction_change"
+  | "environment_condition";
+
+export type IntrapersonalRecordStatus = "active" | "disputed" | "retired";
+
+export type HypothesisOrigin =
+  | "ask_mirror"
+  | "weekly_job"
+  | "user"
+  | "interest_mine"
+  | "cycle_detect"
+  | "ability_model";
+
+export interface HypothesisRow {
+  id: string;
+  ownerId?: string;
+  claim: string;
+  whyItMatters: string;
+  state: HypothesisState;
+  confidence: number;
+  sourceDiversity: number;
+  falsifiers: string[];
+  alternativeExplanations: string[];
+  domains: string[];
+  lastTestedAt: string | null;
+  origin: HypothesisOrigin | string;
+  assistantWeight: number;
+  priorHypothesisId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertHypothesisInput {
+  id?: string;
+  claim: string;
+  whyItMatters?: string;
+  state?: HypothesisState;
+  confidence?: number;
+  sourceDiversity?: number;
+  falsifiers?: string[];
+  alternativeExplanations?: string[];
+  domains?: string[];
+  lastTestedAt?: string | null;
+  origin?: HypothesisOrigin | string;
+  assistantWeight?: number;
+  priorHypothesisId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListHypothesesOptions {
+  limit?: number;
+  state?: HypothesisState;
+  domain?: string;
+  minConfidence?: number;
+  origin?: string;
+}
+
+export interface IntrapersonalRecordRow {
+  id: string;
+  ownerId?: string;
+  recordKind: IntrapersonalRecordKind | string;
+  title: string;
+  statement: string;
+  epistemicType: EpistemicType | string;
+  confidence: number;
+  status: IntrapersonalRecordStatus;
+  context: Record<string, unknown>;
+  behaviour: Record<string, unknown>;
+  outcome: Record<string, unknown>;
+  origin: "self_report" | "inference" | string;
+  hypothesisId: string | null;
+  interestId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertIntrapersonalRecordInput {
+  id?: string;
+  recordKind: IntrapersonalRecordKind | string;
+  title: string;
+  statement: string;
+  epistemicType?: EpistemicType | string;
+  confidence?: number;
+  status?: IntrapersonalRecordStatus;
+  context?: Record<string, unknown>;
+  behaviour?: Record<string, unknown>;
+  outcome?: Record<string, unknown>;
+  origin?: "self_report" | "inference" | string;
+  hypothesisId?: string | null;
+  interestId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListIntrapersonalRecordsOptions {
+  limit?: number;
+  recordKind?: string;
+  status?: IntrapersonalRecordStatus;
+  hypothesisId?: string;
+}
+
+export interface SelfModelItem {
+  id?: string;
+  title: string;
+  statement: string;
+  confidence: number;
+  evidenceIds?: string[];
+  hypothesisId?: string | null;
+  recordId?: string | null;
+  domains?: string[];
+  status?: string;
+}
+
+export interface SelfModelVersionRow {
+  id: string;
+  ownerId?: string;
+  version: number;
+  summary: string;
+  compiledFrom: Record<string, unknown>;
+  strengths: SelfModelItem[];
+  limitations: SelfModelItem[];
+  motives: SelfModelItem[];
+  tensions: SelfModelItem[];
+  identityDevelopment: SelfModelItem[];
+  openQuestionIds: string[];
+  supersedesId: string | null;
+  userCorrections: Array<Record<string, unknown>>;
+  createdAt: string;
+}
+
+export interface InsertSelfModelVersionInput {
+  version: number;
+  summary: string;
+  compiledFrom?: Record<string, unknown>;
+  strengths?: SelfModelItem[];
+  limitations?: SelfModelItem[];
+  motives?: SelfModelItem[];
+  tensions?: SelfModelItem[];
+  identityDevelopment?: SelfModelItem[];
+  openQuestionIds?: string[];
+  supersedesId?: string | null;
+  userCorrections?: Array<Record<string, unknown>>;
+}
+
+export interface ListSelfModelVersionsOptions {
+  limit?: number;
+}
+
+export type InsightVerdictKind =
+  | "hypothesis"
+  | "mirror_item"
+  | "interest"
+  | "self_model_item";
+
+export type InsightVerdictValue = "confirm" | "reject" | "refine";
+
+export interface InsightVerdictRow {
+  id: string;
+  ownerId?: string;
+  insightId: string;
+  insightKind: InsightVerdictKind | string;
+  verdict: InsightVerdictValue;
+  note: string | null;
+  nonObvious: boolean | null;
+  useful: boolean | null;
+  createdAt: string;
+}
+
+export interface InsertInsightVerdictInput {
+  insightId: string;
+  insightKind: InsightVerdictKind | string;
+  verdict: InsightVerdictValue;
+  note?: string | null;
+  nonObvious?: boolean | null;
+  useful?: boolean | null;
+}
+
+export interface ListInsightVerdictsOptions {
+  limit?: number;
+  insightId?: string;
+  since?: string;
+}
+
+export type DecisionSource = "user" | "mined" | "migrated_distillate";
+
+export interface DecisionRow {
+  id: string;
+  ownerId?: string;
+  title: string;
+  statement: string;
+  decidedAt: string;
+  expectedOutcome: string | null;
+  relatedHypothesisIds: string[];
+  relatedEntityKeys: string[];
+  source: DecisionSource | string;
+  distillateId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface UpsertDecisionInput {
+  id?: string;
+  title: string;
+  statement?: string;
+  decidedAt?: string;
+  expectedOutcome?: string | null;
+  relatedHypothesisIds?: string[];
+  relatedEntityKeys?: string[];
+  source?: DecisionSource | string;
+  distillateId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListDecisionsOptions {
+  limit?: number;
+  since?: string;
+}
+
+export interface DecisionOutcomeRow {
+  id: string;
+  ownerId?: string;
+  decisionId: string;
+  recordedAt: string;
+  actualOutcome: string;
+  alignedWithExpected: boolean | null;
+  evidence: EvidenceRef[] | Array<Record<string, unknown>>;
+  learning: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface InsertDecisionOutcomeInput {
+  decisionId: string;
+  actualOutcome: string;
+  recordedAt?: string;
+  alignedWithExpected?: boolean | null;
+  evidence?: EvidenceRef[] | Array<Record<string, unknown>>;
+  learning?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export type ExperimentStatus =
+  | "proposed"
+  | "active"
+  | "completed"
+  | "abandoned";
+
+export type ExperimentResultPolarity =
+  | "supports"
+  | "contradicts"
+  | "inconclusive";
+
+export interface ExperimentRow {
+  id: string;
+  ownerId?: string;
+  hypothesisId: string;
+  title: string;
+  protocol: string;
+  status: ExperimentStatus;
+  proposedAt: string;
+  dueAt: string | null;
+  completedAt: string | null;
+  resultSummary: string | null;
+  resultPolarity: ExperimentResultPolarity | null;
+  evidence: EvidenceRef[] | Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+}
+
+export interface UpsertExperimentInput {
+  id?: string;
+  hypothesisId: string;
+  title: string;
+  protocol: string;
+  status?: ExperimentStatus;
+  proposedAt?: string;
+  dueAt?: string | null;
+  completedAt?: string | null;
+  resultSummary?: string | null;
+  resultPolarity?: ExperimentResultPolarity | null;
+  evidence?: EvidenceRef[] | Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListExperimentsOptions {
+  limit?: number;
+  status?: ExperimentStatus;
+  hypothesisId?: string;
+  dueBefore?: string;
+}
+
+export interface PredictionEventRow {
+  id: string;
+  ownerId?: string;
+  claimId: string;
+  claimKind: string;
+  domain: string | null;
+  predicted: string;
+  actual: string | null;
+  correct: boolean | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+export interface UpsertPredictionEventInput {
+  id?: string;
+  claimId: string;
+  claimKind?: string;
+  domain?: string | null;
+  predicted: string;
+  actual?: string | null;
+  correct?: boolean | null;
+  resolvedAt?: string | null;
+}
+
+export interface ListPredictionEventsOptions {
+  limit?: number;
+  claimId?: string;
+  since?: string;
+}
+
+export interface SelfModelDiffRow {
+  id: string;
+  ownerId?: string;
+  fromVersionId: string | null;
+  toVersionId: string;
+  stable: Array<Record<string, unknown>>;
+  emerging: Array<Record<string, unknown>>;
+  fading: Array<Record<string, unknown>>;
+  environmentShifts: Array<Record<string, unknown>>;
+  confirmedPredictions: Array<Record<string, unknown>>;
+  disprovedPredictions: Array<Record<string, unknown>>;
+  eventAnchors: Array<Record<string, unknown>>;
+  createdAt: string;
+}
+
+export interface InsertSelfModelDiffInput {
+  fromVersionId?: string | null;
+  toVersionId: string;
+  stable?: Array<Record<string, unknown>>;
+  emerging?: Array<Record<string, unknown>>;
+  fading?: Array<Record<string, unknown>>;
+  environmentShifts?: Array<Record<string, unknown>>;
+  confirmedPredictions?: Array<Record<string, unknown>>;
+  disprovedPredictions?: Array<Record<string, unknown>>;
+  eventAnchors?: Array<Record<string, unknown>>;
+}
+
+export interface ListSelfModelDiffsOptions {
+  limit?: number;
+  toVersionId?: string;
+}
+
+export type ClaimEvidencePolarity = "supports" | "contradicts";
+
+export interface ClaimEvidenceRow {
+  id: string;
+  ownerId?: string;
+  claimId: string;
+  claimKind: string;
+  observationId: string | null;
+  evidence: EvidenceRef | Record<string, unknown>;
+  polarity: ClaimEvidencePolarity;
+  createdAt: string;
+}
+
+export interface InsertClaimEvidenceInput {
+  claimId: string;
+  claimKind: string;
+  observationId?: string | null;
+  evidence: EvidenceRef | Record<string, unknown>;
+  polarity: ClaimEvidencePolarity;
+}
+
+/** Insight card DTO — required contract for product surfaces. */
+export interface InsightCard {
+  id: string;
+  theme?: string;
+  notice: string;
+  why: string;
+  evidence: EvidenceRef[];
+  confidence: number;
+  contradictions: string[];
+  rival: string;
+  test: string;
+  controls: {
+    confirm: boolean;
+    reject: boolean;
+    refine: boolean;
+  };
+  hypothesisId?: string | null;
+  provisional?: boolean;
+  metadata?: Record<string, unknown>;
+}

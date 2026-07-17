@@ -17,9 +17,12 @@ describe("memory lenses", () => {
     assert.equal(kinds?.includes("youtube_interest_digest"), false);
   });
 
-  it("includes interest digests in reflective mode", () => {
+  it("includes interest digests and intrapersonal views in reflective mode", () => {
     const kinds = kindsForMode("reflective");
     assert.ok(kinds?.includes("youtube_interest_digest"));
+    assert.ok(kinds?.includes("weekly_mirror"));
+    assert.ok(kinds?.includes("open_questions_snapshot"));
+    assert.ok(kinds?.includes("change_report"));
     assert.ok(kinds?.includes("summary"));
   });
 
