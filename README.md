@@ -12,6 +12,7 @@ Personal AI/session vault, canonical store, and remote MCP. **Collectors run nat
 | Ingest API + MCP | Railway; bearer auth; work-biased `list_recent_work`, payload `search_records`, hybrid `search_memory` |
 | Distillates | OpenAI-compatible HTTP (`OPENAI_API_KEY`); embed on write; `pnpm embed-backfill` for existing rows |
 | Twin (D1–D5) | Entities, project briefs, priority_vs_actual, decisions, self_model/portrait, allocator_context, ask_mirror — see [docs/twin.md](docs/twin.md) / [docs/memory-substrate.md](docs/memory-substrate.md) |
+| Intrapersonal (I0–I6) | Planned: evidence integrity, interest map, hypothesis ledger, experiments/outcomes, longitudinal self-model, four views — [docs/intrapersonal-roadmap.md](docs/intrapersonal-roadmap.md) |
 | Source adapters | Post-gate grain plan (email → GitHub → calendar…) — [docs/source-adapters.md](docs/source-adapters.md) |
 | Parallel data | YouTube Takeout + ChatGPT export (sharded ZIP supported) — does not block MCP |
 

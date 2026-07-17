@@ -4,6 +4,8 @@ Cortex’s Personal Executive Twin builds on **distillates + MCP search**, not O
 
 Unified memory substrate (session sampling, lenses, YouTube digests, `ask_mirror`, portraits): see [memory-substrate.md](memory-substrate.md).
 
+**Intrapersonal intelligence (I0–I6):** evidence integrity → interests → hypothesis ledger → outcomes → longitudinal diffs → four product views. Execution plan: [intrapersonal-roadmap.md](intrapersonal-roadmap.md).
+
 | Layer | Capability | Status in repo |
 |-------|------------|----------------|
 | **C** RAG | `distillates.embedding` + hybrid `search_memory`; embed on write; `pnpm embed-backfill` | Production-useful |

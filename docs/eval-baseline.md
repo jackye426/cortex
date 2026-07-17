@@ -37,3 +37,17 @@ pnpm quality-gate -- --limit=11
 ```
 
 Pass criteria: operational questions return evidence; insufficient-evidence question reports gaps/low confidence; fabricated citation IDs are rejected by Analyst validation.
+
+## Intrapersonal north-star (planned)
+
+**Validated Insight Rate (VIR):** percentage of surfaced insights the user judges accurate, non-obvious, and useful, and which are later supported by behaviour or outcomes.
+
+Supporting gates (insight suite, see [intrapersonal-roadmap.md](intrapersonal-roadmap.md)):
+
+- 100% provenance coverage for material claims
+- ≥3 independent source families for high-confidence insights (or labeled provisional)
+- Contradictory evidence present on substantial hypotheses
+- User corrections incorporated into the next self-model version
+- Circular / assistant-only high-confidence claims fail the gate
+
+Insight-quality fixtures will live in `apps/mcp-server/src/eval/insight-quality.ts` (Slice S0).
