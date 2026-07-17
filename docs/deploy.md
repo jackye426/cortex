@@ -16,7 +16,7 @@ Personal vault stack: **ingest API** + **remote MCP** + **EU Supabase**. Collect
 | MCP | `apps/mcp-server` | 8790 | Streamable HTTP `/mcp` — see [mcp.md](mcp.md) |
 | Collector | `apps/collector` | local | Backfill + pm2 on Windows; not deployed to cloud |
 
-Point collectors / the ChatGPT extension at the public API URL. Point Cursor / Claude / Codex MCP connectors at the public MCP URL.
+Point collectors / the ChatGPT extension at the public API URL. Point the local OpenAI Mirror client (`@cortex/openai-mirror`) or Claude / Codex at the public MCP Mirror URL (`/mcp`). Ops clients only at `/mcp/ops`.
 
 ## Railway (live)
 
@@ -35,7 +35,7 @@ Local Windows after deploy:
 
 1. Set `CORTEX_INGEST_URL` to the API origin (no trailing slash).
 2. Align `CORTEX_INGEST_TOKEN` / `CORTEX_MCP_TOKEN` with Railway.
-3. Write project `.cursor/mcp.json` (gitignored) from `.cursor/mcp.json.example`.
+3. Run Mirror via OpenAI locally: `pnpm --filter @cortex/openai-mirror start` (see [mcp.md](mcp.md)). Optional Cursor config: `.cursor/mcp.json.example`.
 4. `pm2 start ecosystem.config.cjs --only cortex-collector` then `pm2 save` — see [ops-windows.md](ops-windows.md).
 
 Build note: API/MCP `build` scripts compile workspace deps (`pnpm --filter …^...`) before `tsc`.
