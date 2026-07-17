@@ -21,6 +21,8 @@ import {
 } from "./source-adapters.js";
 import { isoWeekKey } from "./week-helpers.js";
 import { extractObservations } from "./intrapersonal/extract-observations.js";
+import { extractAffectProxies } from "./intrapersonal/affect.js";
+import { refreshInterestMap } from "./intrapersonal/interest-map.js";
 
 export type TwinPipelineMode = "nightly" | "weekly" | "backfill";
 
@@ -64,6 +66,9 @@ export interface TwinPipelineResult {
   }>;
   observationsScanned?: number;
   observationsWritten?: number;
+  affectWritten?: number;
+  interestMapWritten?: boolean;
+  interestsMined?: number;
 }
 
 async function runDistillateBatches(
@@ -230,6 +235,15 @@ export async function runTwinPipeline(
     `[twin-pipeline] extract-observations scanned=${observations.scanned} written=${observations.written} skipped=${observations.skipped}`,
   );
 
+  const affect = await extractAffectProxies(store, {
+    dryRun,
+    limit: Math.max(batchSize, 40),
+  });
+  out.affectWritten = affect.written;
+  console.info(
+    `[twin-pipeline] extract-affect scanned=${affect.scanned} written=${affect.written}`,
+  );
+
   if (mode === "weekly" || mode === "backfill") {
     const brief = await runProjectBriefJob(store, {
       dryRun,
@@ -259,6 +273,13 @@ export async function runTwinPipeline(
         skippedSensitive: r.skippedSensitive,
       })),
     ];
+
+    const interestMap = await refreshInterestMap(store, { dryRun });
+    out.interestMapWritten = interestMap.written;
+    out.interestsMined = interestMap.mined;
+    console.info(
+      `[twin-pipeline] interest-map week=${interestMap.weekKey} written=${interestMap.written} mined=${interestMap.mined}`,
+    );
 
     const pva = await runPriorityVsActual(store, { dryRun });
     out.priorityWeek = pva.weekKey;

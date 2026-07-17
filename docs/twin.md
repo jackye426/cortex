@@ -44,6 +44,11 @@ pnpm distillate -- --self-model
 pnpm quality-gate -- --suite=insight
 pnpm quality-gate -- --suite=all --fixture
 
+# Interest intelligence (I2) — weekly twin-pipeline after reflective adapters
+# MCP: refresh_interest_map / get_interest_map / list_interests / log_reflection
+# HTTP: POST /v1/twin { "job": "interest-map" }
+# Adapter: reading-interest (Calibre → reading_interest_digest)
+
 # YouTube interest digests + quality gate
 pnpm youtube-digest -- --dry-run
 pnpm quality-gate -- --fixture --limit=11

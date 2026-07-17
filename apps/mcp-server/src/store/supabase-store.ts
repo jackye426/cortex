@@ -32,6 +32,7 @@ import {
   sessionToRecent,
 } from "./fixtures.js";
 import type {
+  AffectSignalRow,
   CalendarEventItem,
   CalendarStructureItem,
   CortexStore,
@@ -40,7 +41,10 @@ import type {
   EntityLinkRow,
   EntityRow,
   FileSummary,
+  InsertAffectSignalInput,
+  InterestRow,
   LinkEntityInput,
+  ListInterestsOptions,
   ListObservationsOptions,
   ListRecentWorkOptions,
   MemorySearchHit,
@@ -55,10 +59,14 @@ import type {
   SessionEnvelopeInput,
   StoreCredential,
   UpsertEntityInput,
+  UpsertInterestInput,
   UpsertObservationInput,
 } from "./types.js";
 import type {
+  AffectSignalType,
   EvidenceSupportKind,
+  InterestClass,
+  InterestStatus,
   SourceFamily,
 } from "../intrapersonal/types.js";
 
@@ -106,6 +114,67 @@ function mapObservation(row: Record<string, unknown>): ObservationRow {
       typeof row.confidence === "number" ? row.confidence : Number(row.confidence) || 0.5,
     metadata: asRecord(row.metadata),
     contentHash: String(row.content_hash ?? ""),
+  };
+}
+
+function mapInterest(row: Record<string, unknown>): InterestRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    canonicalKey: String(row.canonical_key ?? ""),
+    displayName: String(row.display_name ?? row.canonical_key ?? ""),
+    class: String(row.class ?? "situational") as InterestClass,
+    status: String(row.status ?? "active") as InterestStatus,
+    confidence:
+      typeof row.confidence === "number" ? row.confidence : Number(row.confidence) || 0.5,
+    summary: String(row.summary ?? ""),
+    firstSeenAt:
+      typeof row.first_seen_at === "string" ? row.first_seen_at : null,
+    lastActiveAt:
+      typeof row.last_active_at === "string" ? row.last_active_at : null,
+    recurrenceScore:
+      typeof row.recurrence_score === "number" ? row.recurrence_score : 0,
+    specificityScore:
+      typeof row.specificity_score === "number" ? row.specificity_score : 0,
+    voluntaryReturnScore:
+      typeof row.voluntary_return_score === "number"
+        ? row.voluntary_return_score
+        : 0,
+    persistenceAfterUtility:
+      typeof row.persistence_after_utility === "number"
+        ? row.persistence_after_utility
+        : 0,
+    energyDelta:
+      typeof row.energy_delta === "number" ? row.energy_delta : null,
+    metadata: asRecord(row.metadata),
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
+    updatedAt:
+      typeof row.updated_at === "string"
+        ? row.updated_at
+        : new Date().toISOString(),
+  };
+}
+
+function mapAffectSignal(row: Record<string, unknown>): AffectSignalRow {
+  return {
+    id: String(row.id),
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : undefined,
+    signalType: String(row.signal_type ?? "energy") as AffectSignalType,
+    value: typeof row.value === "number" ? row.value : Number(row.value) || 0,
+    sourceFamily: String(row.source_family ?? "other") as SourceFamily,
+    observationId:
+      typeof row.observation_id === "string" ? row.observation_id : null,
+    context: asRecord(row.context),
+    occurredAt: typeof row.occurred_at === "string" ? row.occurred_at : null,
+    captureMode:
+      row.capture_mode === "self_report" ? "self_report" : "inferred",
+    createdAt:
+      typeof row.created_at === "string"
+        ? row.created_at
+        : new Date().toISOString(),
   };
 }
 
@@ -1507,6 +1576,146 @@ export class SupabaseStore implements CortexStore {
     }
     return (data ?? []).map((row) =>
       mapObservation(row as Record<string, unknown>),
+    );
+  }
+
+  async upsertInterest(input: UpsertInterestInput): Promise<InterestRow> {
+    const now = new Date().toISOString();
+    const ownerId =
+      this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+    const payload = {
+      owner_id: ownerId,
+      canonical_key: input.canonicalKey,
+      display_name: input.displayName ?? input.canonicalKey,
+      class: input.class,
+      status: input.status ?? "active",
+      confidence: input.confidence ?? 0.5,
+      summary: input.summary ?? "",
+      first_seen_at: input.firstSeenAt ?? null,
+      last_active_at: input.lastActiveAt ?? null,
+      recurrence_score: input.recurrenceScore ?? 0,
+      specificity_score: input.specificityScore ?? 0,
+      voluntary_return_score: input.voluntaryReturnScore ?? 0,
+      persistence_after_utility: input.persistenceAfterUtility ?? 0,
+      energy_delta: input.energyDelta ?? null,
+      metadata: input.metadata ?? {},
+      updated_at: now,
+    };
+    const { data, error } = await this.client
+      .from("interests")
+      .upsert(payload, { onConflict: "owner_id,canonical_key" })
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] upsertInterest:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        canonicalKey: input.canonicalKey,
+        displayName: input.displayName ?? input.canonicalKey,
+        class: input.class,
+        status: input.status ?? "active",
+        confidence: input.confidence ?? 0.5,
+        summary: input.summary ?? "",
+        firstSeenAt: input.firstSeenAt ?? null,
+        lastActiveAt: input.lastActiveAt ?? null,
+        recurrenceScore: input.recurrenceScore ?? 0,
+        specificityScore: input.specificityScore ?? 0,
+        voluntaryReturnScore: input.voluntaryReturnScore ?? 0,
+        persistenceAfterUtility: input.persistenceAfterUtility ?? 0,
+        energyDelta: input.energyDelta ?? null,
+        metadata: { ...(input.metadata ?? {}), writeError: error.message },
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+    return mapInterest(data as Record<string, unknown>);
+  }
+
+  async listInterests(
+    options: ListInterestsOptions = {},
+  ): Promise<InterestRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("interests")
+      .select("*")
+      .order("confidence", { ascending: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.class) q = q.eq("class", options.class);
+    if (options.status) q = q.eq("status", options.status);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listInterests:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapInterest(row as Record<string, unknown>),
+    );
+  }
+
+  async insertAffectSignal(
+    input: InsertAffectSignalInput,
+  ): Promise<AffectSignalRow> {
+    const now = new Date().toISOString();
+    const ownerId =
+      this.ownerId ?? "00000000-0000-4000-8000-000000000001";
+    const payload = {
+      owner_id: ownerId,
+      signal_type: input.signalType,
+      value: input.value,
+      source_family: input.sourceFamily,
+      observation_id: input.observationId ?? null,
+      context: input.context ?? {},
+      occurred_at: input.occurredAt ?? null,
+      capture_mode: input.captureMode ?? "inferred",
+    };
+    const { data, error } = await this.client
+      .from("affect_signals")
+      .insert(payload)
+      .select("*")
+      .limit(1)
+      .single();
+    if (error) {
+      console.warn("[store/supabase] insertAffectSignal:", error.message);
+      return {
+        id: "noop",
+        ownerId,
+        signalType: input.signalType,
+        value: input.value,
+        sourceFamily: input.sourceFamily,
+        observationId: input.observationId ?? null,
+        context: { ...(input.context ?? {}), writeError: error.message },
+        occurredAt: input.occurredAt ?? null,
+        captureMode: input.captureMode ?? "inferred",
+        createdAt: now,
+      };
+    }
+    return mapAffectSignal(data as Record<string, unknown>);
+  }
+
+  async listAffectSignals(options: {
+    limit?: number;
+    signalType?: string;
+    since?: string;
+  } = {}): Promise<AffectSignalRow[]> {
+    const capped = Math.max(1, Math.min(options.limit ?? 50, 200));
+    let q = this.client
+      .from("affect_signals")
+      .select("*")
+      .order("occurred_at", { ascending: false, nullsFirst: false })
+      .limit(capped);
+    q = this.applyOwner(q);
+    if (options.signalType) q = q.eq("signal_type", options.signalType);
+    if (options.since) q = q.gte("occurred_at", options.since);
+    const { data, error } = await q;
+    if (error) {
+      console.warn("[store/supabase] listAffectSignals:", error.message);
+      return [];
+    }
+    return (data ?? []).map((row) =>
+      mapAffectSignal(row as Record<string, unknown>),
     );
   }
 }

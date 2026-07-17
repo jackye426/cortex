@@ -31,7 +31,17 @@ import {
 import type { CortexStore } from "./store/index.js";
 import { extractObservations } from "./intrapersonal/extract-observations.js";
 import { auditSourceCoverage } from "./intrapersonal/source-health.js";
-import type { SourceFamily } from "./intrapersonal/types.js";
+import { extractAffectProxies, logReflection } from "./intrapersonal/affect.js";
+import { mineInterests } from "./intrapersonal/interest-mine.js";
+import {
+  getLatestInterestMap,
+  refreshInterestMap,
+} from "./intrapersonal/interest-map.js";
+import type {
+  InterestClass,
+  InterestStatus,
+  SourceFamily,
+} from "./intrapersonal/types.js";
 
 function textResult(data: unknown) {
   return {
@@ -1024,6 +1034,160 @@ export function registerCortexTools(
     },
     async ({ limit, dryRun }) => {
       const result = await extractObservations(store, { limit, dryRun });
+      return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "list_interests",
+    {
+      description:
+        "List first-class interest entities with terminal/instrumental/aspirational/situational/dormant classification (I2).",
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional(),
+        class: z
+          .enum([
+            "terminal",
+            "instrumental",
+            "aspirational",
+            "situational",
+            "dormant",
+          ])
+          .optional(),
+        status: z.enum(["active", "dormant", "retired"]).optional(),
+      },
+    },
+    async ({ limit, class: interestClass, status }) => {
+      const rows = await store.listInterests({
+        limit,
+        class: interestClass as InterestClass | undefined,
+        status: status as InterestStatus | undefined,
+      });
+      return textResult({ mode: store.mode, count: rows.length, interests: rows });
+    },
+  );
+
+  server.registerTool(
+    "upsert_interest",
+    {
+      description:
+        "Manually create or refine an interest entity (class, status, summary).",
+      inputSchema: {
+        canonicalKey: z.string(),
+        displayName: z.string().optional(),
+        class: z.enum([
+          "terminal",
+          "instrumental",
+          "aspirational",
+          "situational",
+          "dormant",
+        ]),
+        status: z.enum(["active", "dormant", "retired"]).optional(),
+        summary: z.string().optional(),
+        confidence: z.number().min(0).max(1).optional(),
+      },
+    },
+    async ({ canonicalKey, displayName, class: interestClass, status, summary, confidence }) => {
+      const row = await store.upsertInterest({
+        canonicalKey,
+        displayName,
+        class: interestClass,
+        status,
+        summary,
+        confidence,
+        metadata: { source: "user", refined: true },
+      });
+      return textResult({ mode: store.mode, interest: row });
+    },
+  );
+
+  server.registerTool(
+    "get_interest_map",
+    {
+      description:
+        "Return the latest Interest Map (grouped terminal/instrumental/aspirational/situational/dormant) with evidence summaries (I2).",
+      inputSchema: {},
+    },
+    async () => {
+      const result = await getLatestInterestMap(store);
+      return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "refresh_interest_map",
+    {
+      description:
+        "Mine interest candidates from digests/sessions and compile a versioned interest_map distillate (I2 weekly job).",
+      inputSchema: {
+        dryRun: z.boolean().optional(),
+        weekKey: z.string().optional(),
+        skipMine: z.boolean().optional(),
+      },
+    },
+    async ({ dryRun, weekKey, skipMine }) => {
+      const result = await refreshInterestMap(store, {
+        dryRun,
+        weekKey,
+        skipMine,
+      });
+      return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "mine_interests",
+    {
+      description:
+        "Mine and classify interest entities from interest digests + session topics without compiling the map.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(300).optional(),
+        dryRun: z.boolean().optional(),
+      },
+    },
+    async ({ limit, dryRun }) => {
+      const result = await mineInterests(store, { limit, dryRun });
+      return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "log_reflection",
+    {
+      description:
+        "Capture a direct reflection / energy-valence self-report as observation + affect signals (I2).",
+      inputSchema: {
+        text: z.string(),
+        energy: z.number().min(-1).max(1).optional(),
+        valence: z.number().min(-1).max(1).optional(),
+        interestKey: z.string().optional(),
+        occurredAt: z.string().optional(),
+      },
+    },
+    async ({ text, energy, valence, interestKey, occurredAt }) => {
+      const result = await logReflection(store, {
+        text,
+        energy,
+        valence,
+        interestKey,
+        occurredAt,
+      });
+      return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "extract_affect_proxies",
+    {
+      description:
+        "Infer energy/friction/flow affect signals from session distillate metadata (I2).",
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional(),
+        dryRun: z.boolean().optional(),
+      },
+    },
+    async ({ limit, dryRun }) => {
+      const result = await extractAffectProxies(store, { limit, dryRun });
       return textResult({ mode: store.mode, ...result });
     },
   );

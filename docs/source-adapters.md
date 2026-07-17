@@ -13,10 +13,11 @@ Session + YouTube digests ship in v1. Other sources stay **keyword-only in retri
 | 4 | `drive-file` | `drive-file-v2` | High-signal docs after sensitivity gate | Operational search returns digests; dry-run reports `skippedSensitive` |
 | 5 | `browser-interest` | `browser-interest-v2` | One digest per ISO week (bookmarks + searches) | Week-scoped (not all-time newest) |
 | 6 | `spotify-interest` | `spotify-interest-v2` | One digest per ISO week of plays/episodes | No `[object Object]` artists; week-scoped |
+| 7 | `reading-interest` | `reading-interest-v1` | One digest per ISO week of Calibre ebooks touched/added | Reflective Mirror cites `reading_interest_digest`; feeds Interest Map |
 
 Enable in twin-pipeline via env (comma list). **Default (post-acceptance)** runs all gated adapters:
 
-`email-thread,github-outcome,calendar-event,drive-file,browser-interest,spotify-interest`
+`email-thread,github-outcome,calendar-event,drive-file,browser-interest,spotify-interest,reading-interest`
 
 ```bash
 # Optional override on Railway MCP / Windows pm2 .env:
@@ -32,7 +33,7 @@ Distillates do **not** run on ingest. New vault rows become memory on the next s
 |-----|-----|------|
 | **Ingest** | Windows collector `sync-loop` (gmail/calendar/drive); manual/periodic backfill (github, browser, spotify, youtube-takeout, chatgpt) | Rows → Supabase `records` |
 | **Distill nightly** | `POST /v1/twin-pipeline` mode=nightly | Sessions + YouTube current week + enabled operational adapters (`email-thread`, `github-outcome`, `calendar-event`, `drive-file`) |
-| **Distill weekly** | twin-pipeline mode=weekly | Portrait / priority / briefs + enabled reflective adapters (`browser-interest`, `spotify-interest`) |
+| **Distill weekly** | twin-pipeline mode=weekly | Portrait / priority / briefs + interest-map + enabled reflective adapters (`browser-interest`, `spotify-interest`, `reading-interest`) |
 
 ### Incremental skip / recompile
 

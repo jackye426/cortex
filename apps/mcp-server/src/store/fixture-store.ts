@@ -27,6 +27,7 @@ import {
   sessionToRecent,
 } from "./fixtures.js";
 import type {
+  AffectSignalRow,
   CalendarEventItem,
   CalendarStructureItem,
   CortexStore,
@@ -35,7 +36,10 @@ import type {
   EntityLinkRow,
   EntityRow,
   FileSummary,
+  InsertAffectSignalInput,
+  InterestRow,
   LinkEntityInput,
+  ListInterestsOptions,
   ListObservationsOptions,
   ListRecentWorkOptions,
   MemorySearchHit,
@@ -50,10 +54,13 @@ import type {
   SessionEnvelopeInput,
   StoreCredential,
   UpsertEntityInput,
+  UpsertInterestInput,
   UpsertObservationInput,
 } from "./types.js";
 
 const fixtureObservations: ObservationRow[] = [];
+const fixtureInterests: InterestRow[] = [];
+const fixtureAffectSignals: AffectSignalRow[] = [];
 
 /**
  * In-memory fixture store — used when Supabase is not configured.
@@ -522,6 +529,107 @@ export class FixtureStore implements CortexStore {
         }
         if (options.since && (o.occurredAt ?? "") < options.since) return false;
         if (options.until && (o.occurredAt ?? "") > options.until) return false;
+        return true;
+      })
+      .slice(0, limit);
+  }
+
+  async upsertInterest(input: UpsertInterestInput): Promise<InterestRow> {
+    const now = new Date().toISOString();
+    const existing = fixtureInterests.find(
+      (i) => i.canonicalKey === input.canonicalKey,
+    );
+    if (existing) {
+      existing.displayName = input.displayName ?? existing.displayName;
+      existing.class = input.class;
+      existing.status = input.status ?? existing.status;
+      existing.confidence = input.confidence ?? existing.confidence;
+      existing.summary = input.summary ?? existing.summary;
+      existing.firstSeenAt = input.firstSeenAt ?? existing.firstSeenAt;
+      existing.lastActiveAt = input.lastActiveAt ?? existing.lastActiveAt;
+      existing.recurrenceScore =
+        input.recurrenceScore ?? existing.recurrenceScore;
+      existing.specificityScore =
+        input.specificityScore ?? existing.specificityScore;
+      existing.voluntaryReturnScore =
+        input.voluntaryReturnScore ?? existing.voluntaryReturnScore;
+      existing.persistenceAfterUtility =
+        input.persistenceAfterUtility ?? existing.persistenceAfterUtility;
+      existing.energyDelta =
+        input.energyDelta !== undefined
+          ? input.energyDelta
+          : existing.energyDelta;
+      existing.metadata = { ...existing.metadata, ...(input.metadata ?? {}) };
+      existing.updatedAt = now;
+      return existing;
+    }
+    const created: InterestRow = {
+      id: randomUUID(),
+      canonicalKey: input.canonicalKey,
+      displayName: input.displayName ?? input.canonicalKey,
+      class: input.class,
+      status: input.status ?? "active",
+      confidence: input.confidence ?? 0.5,
+      summary: input.summary ?? "",
+      firstSeenAt: input.firstSeenAt ?? null,
+      lastActiveAt: input.lastActiveAt ?? null,
+      recurrenceScore: input.recurrenceScore ?? 0,
+      specificityScore: input.specificityScore ?? 0,
+      voluntaryReturnScore: input.voluntaryReturnScore ?? 0,
+      persistenceAfterUtility: input.persistenceAfterUtility ?? 0,
+      energyDelta: input.energyDelta ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    fixtureInterests.push(created);
+    return created;
+  }
+
+  async listInterests(
+    options: ListInterestsOptions = {},
+  ): Promise<InterestRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureInterests
+      .filter((i) => {
+        if (options.class && i.class !== options.class) return false;
+        if (options.status && i.status !== options.status) return false;
+        return true;
+      })
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, limit);
+  }
+
+  async insertAffectSignal(
+    input: InsertAffectSignalInput,
+  ): Promise<AffectSignalRow> {
+    const created: AffectSignalRow = {
+      id: randomUUID(),
+      signalType: input.signalType,
+      value: input.value,
+      sourceFamily: input.sourceFamily,
+      observationId: input.observationId ?? null,
+      context: input.context ?? {},
+      occurredAt: input.occurredAt ?? null,
+      captureMode: input.captureMode ?? "inferred",
+      createdAt: new Date().toISOString(),
+    };
+    fixtureAffectSignals.push(created);
+    return created;
+  }
+
+  async listAffectSignals(options: {
+    limit?: number;
+    signalType?: string;
+    since?: string;
+  } = {}): Promise<AffectSignalRow[]> {
+    const limit = Math.max(1, Math.min(options.limit ?? 50, 200));
+    return fixtureAffectSignals
+      .filter((s) => {
+        if (options.signalType && s.signalType !== options.signalType) {
+          return false;
+        }
+        if (options.since && (s.occurredAt ?? "") < options.since) return false;
         return true;
       })
       .slice(0, limit);

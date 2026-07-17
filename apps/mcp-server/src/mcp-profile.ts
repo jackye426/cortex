@@ -9,7 +9,7 @@ Start every new thread by calling cortex_help once, then follow this order.
 
 1. Work / building → list_recent_work, then search_memory (mode=operational). Do NOT expect raw session dumps or get_session on this endpoint.
 2. Schedule structure → get_calendar_range (sanitised: summary/start/end/attendee_count only). Descriptions/attachments → evidence broker.
-3. Semantic / insight → search_memory (operational|reflective|both). Cited synthesis → ask_mirror (citations required; source-balanced for reflective/both; no silent raw expansion). Evidence health → audit_source_coverage; factual atoms → list_observations.
+3. Semantic / insight → search_memory (operational|reflective|both). Cited synthesis → ask_mirror (citations required; source-balanced for reflective/both; no silent raw expansion). Evidence health → audit_source_coverage; factual atoms → list_observations. Interests → get_interest_map / list_interests; optional log_reflection for energy/valence.
 4. Raw evidence (email body, session turns, drive preview, calendar description):
    a) request_evidence_capability with purpose, sourceTypes, since, until (ISO), permittedFields
       (e.g. body_excerpt|session_excerpt|description_excerpt|text_preview), optional subjectIds/maxResults

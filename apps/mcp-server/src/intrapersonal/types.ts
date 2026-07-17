@@ -166,3 +166,93 @@ export interface SourceCoverageReport {
   aiSessionShareOfRecentDistillates: number;
   notes: string[];
 }
+
+export type InterestStatus = "active" | "dormant" | "retired";
+
+export interface InterestRow {
+  id: string;
+  ownerId?: string;
+  canonicalKey: string;
+  displayName: string;
+  class: InterestClass;
+  status: InterestStatus;
+  confidence: number;
+  summary: string;
+  firstSeenAt: string | null;
+  lastActiveAt: string | null;
+  recurrenceScore: number;
+  specificityScore: number;
+  voluntaryReturnScore: number;
+  persistenceAfterUtility: number;
+  energyDelta: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertInterestInput {
+  canonicalKey: string;
+  displayName?: string;
+  class: InterestClass;
+  status?: InterestStatus;
+  confidence?: number;
+  summary?: string;
+  firstSeenAt?: string | null;
+  lastActiveAt?: string | null;
+  recurrenceScore?: number;
+  specificityScore?: number;
+  voluntaryReturnScore?: number;
+  persistenceAfterUtility?: number;
+  energyDelta?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ListInterestsOptions {
+  limit?: number;
+  class?: InterestClass;
+  status?: InterestStatus;
+}
+
+export type AffectSignalType = "energy" | "valence" | "friction" | "flow";
+
+export interface AffectSignalRow {
+  id: string;
+  ownerId?: string;
+  signalType: AffectSignalType;
+  value: number;
+  sourceFamily: SourceFamily;
+  observationId: string | null;
+  context: Record<string, unknown>;
+  occurredAt: string | null;
+  captureMode: "inferred" | "self_report";
+  createdAt: string;
+}
+
+export interface InsertAffectSignalInput {
+  signalType: AffectSignalType;
+  value: number;
+  sourceFamily: SourceFamily;
+  observationId?: string | null;
+  context?: Record<string, unknown>;
+  occurredAt?: string | null;
+  captureMode?: "inferred" | "self_report";
+}
+
+export interface InterestMapSection {
+  class: InterestClass;
+  interests: Array<{
+    canonicalKey: string;
+    displayName: string;
+    confidence: number;
+    summary: string;
+    sourceFamilies: SourceFamily[];
+    evidenceCount: number;
+  }>;
+}
+
+export interface InterestMapPayload {
+  weekKey?: string;
+  generatedAt: string;
+  sections: InterestMapSection[];
+  notes: string[];
+}

@@ -39,6 +39,7 @@ import { MEMORY_EVAL_QUESTIONS } from "./eval/baseline.js";
 import { runInsightQualityFixtures } from "./eval/insight-quality.js";
 import { extractObservations } from "./intrapersonal/extract-observations.js";
 import { auditSourceCoverage } from "./intrapersonal/source-health.js";
+import { refreshInterestMap } from "./intrapersonal/interest-map.js";
 loadDotEnv();
 
 const vaultStore = createStore("vault");
@@ -317,6 +318,10 @@ app.post("/v1/twin", async (c) => {
     const result = await extractObservations(vaultStore, { dryRun, limit });
     return c.json({ ok: true, job, ...result });
   }
+  if (job === "interest-map") {
+    const result = await refreshInterestMap(vaultStore, { dryRun });
+    return c.json({ ok: true, job, ...result });
+  }
   return c.json(
     {
       error: "unknown job",
@@ -328,6 +333,7 @@ app.post("/v1/twin", async (c) => {
         "portrait",
         "youtube-digest",
         "extract-observations",
+        "interest-map",
       ],
     },
     400,

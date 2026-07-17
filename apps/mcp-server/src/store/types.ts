@@ -1,14 +1,24 @@
 /** Shared shapes for MCP tool backends (Supabase or fixture mode). */
 
 import type {
+  AffectSignalRow,
+  InsertAffectSignalInput,
+  InterestRow,
+  ListInterestsOptions,
   ListObservationsOptions,
   ObservationRow,
+  UpsertInterestInput,
   UpsertObservationInput,
 } from "../intrapersonal/types.js";
 
 export type {
+  AffectSignalRow,
+  InsertAffectSignalInput,
+  InterestRow,
+  ListInterestsOptions,
   ListObservationsOptions,
   ObservationRow,
+  UpsertInterestInput,
   UpsertObservationInput,
 };
 
@@ -327,4 +337,14 @@ export interface CortexStore {
   /** Durable factual intrapersonal atoms (I1). */
   upsertObservation(input: UpsertObservationInput): Promise<ObservationRow>;
   listObservations(options?: ListObservationsOptions): Promise<ObservationRow[]>;
+  /** Interest entities (I2). */
+  upsertInterest(input: UpsertInterestInput): Promise<InterestRow>;
+  listInterests(options?: ListInterestsOptions): Promise<InterestRow[]>;
+  /** Affect proxies / reflections (I2). */
+  insertAffectSignal(input: InsertAffectSignalInput): Promise<AffectSignalRow>;
+  listAffectSignals(options?: {
+    limit?: number;
+    signalType?: string;
+    since?: string;
+  }): Promise<AffectSignalRow[]>;
 }

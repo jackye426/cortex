@@ -1317,10 +1317,11 @@ When this demo is green, Cortex has completed the shift from “here is what you
 
 | Slice | Status |
 |-------|--------|
-| **S0** | Types, insight-quality fixtures, docs pointers — in progress on this branch |
-| **S1** | Observations migration, balanced retrieve, circular policy, source audit, nightly extract — in progress on this branch |
-| S2–S7 | Not started |
+| **S0** | Done on this branch — types, insight-quality fixtures, docs pointers |
+| **S1** | Done on this branch — observations, balanced retrieve, circular policy, source audit, nightly extract |
+| **S2** | Done on this branch — interests, affect proxies, reading digest, Interest Map |
+| S3–S7 | Not started |
 
 ### Immediate next implementation action
 
-After S0+S1 merge and C1 gates green, continue **S2** (interest entities + Interest Map).
+After S2 merge and C2 gates green, continue **S3** (hypothesis ledger + self-model v2).
