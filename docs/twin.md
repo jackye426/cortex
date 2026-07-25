@@ -6,8 +6,11 @@ Unified memory substrate (session sampling, lenses, YouTube digests, `ask_mirror
 
 **Intrapersonal intelligence (I0–I6):** evidence integrity → interests → hypothesis ledger → outcomes → longitudinal diffs → four product views. Execution plan: [intrapersonal-roadmap.md](intrapersonal-roadmap.md).
 
+**Coding ops intelligence (O0–O6):** Paxel-depth session events, decision catalog, git episodes, five-axis scoring, coding builder profile + feedback. Execution plan: [coding-ops-roadmap.md](coding-ops-roadmap.md).
+
 | Layer | Capability | Status in repo |
 |-------|------------|----------------|
+| **O\*** Coding ops | Session ops extract → episodes → 5-axis scores → builder profile (planned) | Roadmap — [coding-ops-roadmap.md](coding-ops-roadmap.md) |
 | **C** RAG | `distillates.embedding` + hybrid `search_memory`; embed on write; `pnpm embed-backfill` | Production-useful |
 | **C+** Lenses | `mode=operational\|reflective\|both` + domain/topic filters | Shipped |
 | **C+** Mirror | `ask_mirror` cited synthesis (ephemeral) | Shipped |
