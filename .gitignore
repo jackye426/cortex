@@ -44,7 +44,9 @@ apps/collector/data/
 # Google / local credentials (never commit)
 credentials/
 
-# Cursor local (keep example)
+# Cursor local (keep example + committed skills)
 .cursor/*
 !.cursor/mcp.json.example
+!.cursor/skills/
+!.cursor/skills/**
 
