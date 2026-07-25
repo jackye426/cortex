@@ -1,14 +1,14 @@
 # Agent notes (Cortex)
 
-## Coding ops session contract
+## Vibe-law
 
-On **build / implement / feature / review** work, load and follow the skill:
+On **build / implement / feature / review** work, load and follow **`vibe-law`**:
 
-- Cursor: `.cursor/skills/coding-ops-session-contract/SKILL.md`
-- Cross-tool: `.agents/skills/coding-ops-session-contract/SKILL.md`
-- Claude Code: `.claude/skills/coding-ops-session-contract/SKILL.md`
+- Cursor: `.cursor/skills/vibe-law/SKILL.md` (`/vibe-law`)
+- Cross-tool: `.agents/skills/vibe-law/SKILL.md`
+- Claude Code: `.claude/skills/vibe-law/SKILL.md`
 
-Human summary: [docs/coding-ops-session-contract.md](docs/coding-ops-session-contract.md)
+Human summary: [docs/vibe-law.md](docs/vibe-law.md)
 
 **Remind Jack of growth edges from Paxel/coding-ops:**
 
