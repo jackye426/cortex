@@ -678,4 +678,4 @@ A coding-ops fixture pack (Cursor + Claude + Codex) must satisfy:
 **MCP:** `extract_session_ops`, `list_session_ops`, `list_episode_scores`, `get_coding_builder_profile`  
 **HTTP:** `POST /v1/twin` `{ "job": "coding-ops" }`  
 **Pipeline:** nightly extracts digests/scores; weekly builds profile + mirror coding_ops card.  
-**Build-time reminders:** skill `coding-ops-session-contract` under `.cursor/skills/`, `.agents/skills/`, `.claude/skills/` — see [coding-ops-session-contract.md](coding-ops-session-contract.md).
+**Build-time reminders:** skill **`vibe-law`** under `.cursor/skills/`, `.agents/skills/`, `.claude/skills/` — see [vibe-law.md](vibe-law.md).

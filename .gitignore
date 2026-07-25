@@ -47,6 +47,6 @@ credentials/
 # Cursor local (keep example + committed skills)
 .cursor/*
 !.cursor/mcp.json.example
-!.cursor/skills/
+!.cursor/skills
 !.cursor/skills/**
 

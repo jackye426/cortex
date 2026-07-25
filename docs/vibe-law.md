@@ -1,14 +1,14 @@
-# Coding ops session contract (build-time reminders)
+# Vibe-law (build-time session contract)
 
 Standing instructions so AI coding sessions address **Paxel / Cortex coding-ops growth edges** while you build — not only in the weekly profile.
 
-**Skill (auto-loaded by agents):**
+**Skill:** `vibe-law` (invoke with `/vibe-law`)
 
 | Tool | Path |
 |------|------|
-| Cursor | [`.cursor/skills/coding-ops-session-contract/SKILL.md`](../.cursor/skills/coding-ops-session-contract/SKILL.md) |
-| Claude / Codex / Gemini | [`.agents/skills/coding-ops-session-contract/SKILL.md`](../.agents/skills/coding-ops-session-contract/SKILL.md) |
-| Claude Code | [`.claude/skills/coding-ops-session-contract/SKILL.md`](../.claude/skills/coding-ops-session-contract/SKILL.md) |
+| Cursor | [`.cursor/skills/vibe-law/SKILL.md`](../.cursor/skills/vibe-law/SKILL.md) |
+| Claude / Codex / Gemini | [`.agents/skills/vibe-law/SKILL.md`](../.agents/skills/vibe-law/SKILL.md) |
+| Claude Code | [`.claude/skills/vibe-law/SKILL.md`](../.claude/skills/vibe-law/SKILL.md) |
 
 Also referenced from root [`AGENTS.md`](../AGENTS.md).
 
@@ -45,7 +45,7 @@ MCP: get_coding_builder_profile
 HTTP: POST /v1/twin { "job": "coding-ops" }
 ```
 
-Update this skill’s growth-edge wording when the profile’s top growth cards change.
+Update the skill’s growth-edge wording when the profile’s top growth cards change.
 
 ## Related
 

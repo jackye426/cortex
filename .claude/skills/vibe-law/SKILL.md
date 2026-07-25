@@ -1,15 +1,15 @@
 ---
-name: coding-ops-session-contract
+name: vibe-law
 description: >-
-  Enforce Jack's coding-ops session contract during AI build sessions.
+  Vibe-law: Jack's build-session contract for AI coding agents.
   Use whenever implementing features, scaffolding, editing code, planning work,
-  reviewing UI/UX, or directing Cursor/Claude/Codex agents — especially when the
-  first user prompt is thin ("Goal: Add", "make X better", missing user/acceptance).
-  Reminds product target, approval boundaries, and close-with-proof from Paxel /
-  Cortex coding-ops growth edges.
+  reviewing UI/UX, or directing Cursor/Claude/Codex — especially when the first
+  prompt is thin ("Goal: Add", "make X better", missing user/acceptance).
+  Reminds product target, approval boundaries, and close-with-proof (Paxel /
+  Cortex coding-ops growth edges).
 ---
 
-# Coding ops session contract
+# Vibe-law
 
 You are helping Jack build with AI coding agents. Cortex/Paxel scoring shows **strong steering and execution rails**, and weaker **in-session product targets** plus occasional **missing final proof**. Your job is to surface those gaps *during* the session — not after.
 
