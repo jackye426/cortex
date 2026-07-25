@@ -29,6 +29,12 @@ import {
 } from "./project-brief.js";
 import type { CortexStore } from "./store/index.js";
 import { extractObservations } from "./intrapersonal/extract-observations.js";
+import {
+  getLatestCodingBuilderProfile,
+  listEpisodeScores,
+  listSessionOpsDigests,
+  runCodingOpsPipeline,
+} from "./session-ops/pipeline.js";
 import { auditSourceCoverage } from "./intrapersonal/source-health.js";
 import { extractAffectProxies, logReflection } from "./intrapersonal/affect.js";
 import { mineInterests } from "./intrapersonal/interest-mine.js";
@@ -1127,6 +1133,109 @@ export function registerCortexTools(
     async ({ limit, dryRun }) => {
       const result = await extractObservations(store, { limit, dryRun });
       return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "extract_session_ops",
+    {
+      description:
+        "Run coding-ops pipeline on recent AI coding sessions: events/steering/plans, narratives, decision catalog, episode scores, builder profile (O1–O5). dryRun uses stubs and skips writes.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        dryRun: z.boolean().optional(),
+        stubOnly: z.boolean().optional(),
+        skipProfile: z.boolean().optional(),
+      },
+    },
+    async ({ limit, dryRun, stubOnly, skipProfile }) => {
+      const result = await runCodingOpsPipeline(store, {
+        limit,
+        dryRun,
+        stubOnly: stubOnly ?? dryRun,
+        skipProfile,
+      });
+      return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "list_session_ops",
+    {
+      description:
+        "List session_ops_digest rows (events, steering traces, signals, plans) for coding-ops intelligence.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        sessionId: z.string().optional(),
+      },
+    },
+    async ({ limit, sessionId }) => {
+      const rows = await listSessionOpsDigests(store, { limit, sessionId });
+      return textResult({
+        mode: store.mode,
+        count: rows.length,
+        digests: rows.map((r) => ({
+          distillateId: r.distillate.id,
+          sessionId: r.digest.sessionId,
+          sourceId: r.digest.sourceId,
+          title: r.digest.title,
+          events: r.digest.events?.length ?? 0,
+          steeringTraces: r.digest.steeringTraces?.length ?? 0,
+          planFiles: r.digest.planFiles?.length ?? 0,
+          signals: r.digest.sessionSignals,
+          firstPrompt: r.digest.firstPrompt,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "list_episode_scores",
+    {
+      description:
+        "List five-axis episode_score distillates from coding-ops (execution/steering/engineering/product/planning).",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+    },
+    async ({ limit }) => {
+      const rows = await listEpisodeScores(store, { limit });
+      return textResult({
+        mode: store.mode,
+        count: rows.length,
+        episodes: rows.map((r) => ({
+          distillateId: r.distillate.id,
+          episodeId: r.episodeId,
+          title: r.score.title,
+          scores: r.score.scores,
+          confidence: r.score.confidence,
+          interpretation: r.score.interpretation,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "get_coding_builder_profile",
+    {
+      description:
+        "Return the latest coding builder profile (axes, band, strengths, growth edges, decision summary). Paxel-depth feedback for how you direct AI coding agents.",
+      inputSchema: {},
+    },
+    async () => {
+      const row = await getLatestCodingBuilderProfile(store);
+      if (!row) {
+        return textResult({
+          mode: store.mode,
+          profile: null,
+          hint: "Run extract_session_ops (or weekly twin-pipeline) to build a coding_builder_profile.",
+        });
+      }
+      return textResult({
+        mode: store.mode,
+        distillateId: row.distillate.id,
+        profile: row.profile,
+      });
     },
   );
 

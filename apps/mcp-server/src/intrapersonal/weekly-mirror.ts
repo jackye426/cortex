@@ -12,6 +12,7 @@ import {
   serializeInsightCard,
 } from "./insight-card.js";
 import type { EvidenceRef, InsightCard, SourceFamily } from "./types.js";
+import { getLatestCodingBuilderProfile } from "../session-ops/pipeline.js";
 
 const THEMES = [
   "energy",
@@ -273,10 +274,61 @@ export async function buildWeeklyMirror(
     notes.push(`${dueExperiments.length} experiment(s) due for results.`);
   }
 
+  // Coding ops section (O5) — how you build with agents
+  try {
+    const coding = await getLatestCodingBuilderProfile(store);
+    if (coding?.profile) {
+      const p = coding.profile;
+      const growth = p.growthEdges[0];
+      const strength = p.strengths[0];
+      notes.push(
+        `Coding ops: band=${p.band ?? "n/a"}, sessions=${p.metrics.sessionsScored}, episodes=${p.metrics.episodesScored}.`,
+      );
+      filtered.push(
+        serializeInsightCard({
+          id: `wm-${key}-coding_ops`,
+          theme: "coding_ops",
+          notice: growth
+            ? `How you build with agents — growth edge: ${growth.question} (${growth.value}). ${growth.subtitle}`
+            : strength
+              ? `How you build with agents — ${strength.question}: ${strength.value}. ${strength.subtitle}`
+              : "Coding builder profile available; keep running session-ops extract.",
+          why: "Agent-direction judgment (steering, planning, product targets) compounds faster than raw LOC.",
+          evidence: [
+            ev(
+              "ai_sessions",
+              growth?.subtitle || strength?.subtitle || "coding_builder_profile",
+              0.55,
+            ),
+          ],
+          confidence: 0.55,
+          contradictions: [
+            "Off-transcript product research will not appear in coding-ops scores.",
+          ],
+          rival:
+            "Infra-heavy weeks can mute product_thinking without meaning weak product sense.",
+          test: growth?.subtitle
+            ? "On the next user-facing feature, put user/job/acceptance test in the first prompt before rails."
+            : "Run coding-ops pipeline on recent sessions and re-check growth edges.",
+          provisional: true,
+          metadata: {
+            codingBuilderProfile: true,
+            band: p.band,
+            axes: p.axes,
+          },
+        }),
+      );
+    }
+  } catch (err) {
+    notes.push(
+      `Coding ops profile unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   return {
     weekKey: key,
     generatedAt: new Date().toISOString(),
-    cards: filtered.slice(0, 5),
+    cards: filtered.slice(0, 6),
     notes,
   };
 }

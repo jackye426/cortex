@@ -2,6 +2,8 @@
 
 Cortex evolves task-oriented distillates into one evidence-backed memory layer with operational and reflective lenses. Raw vault data stays immutable; interpretation is derived and replayable.
 
+Coding-session judgment beyond executive summaries (events, episodes, five-axis scores, builder profile) is specified in [coding-ops-roadmap.md](coding-ops-roadmap.md).
+
 ## Architecture (v1)
 
 ```text
