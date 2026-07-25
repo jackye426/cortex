@@ -27,10 +27,23 @@ export const FIXTURE_SESSIONS: SessionDetail[] = [
       {
         id: "m1",
         role: "user",
-        content: "Add bearer auth to the ingest endpoint.",
+        content:
+          "Add bearer auth to the ingest endpoint. Dry-run first, no secrets printed, do not commit.",
       },
       {
         id: "m2",
+        role: "assistant",
+        content:
+          "I can add middleware or check the header inline. Option A: middleware. Option B: inline check. Which approach?",
+      },
+      {
+        id: "m1b",
+        role: "user",
+        content:
+          "Use middleware instead — keep CORTEX_INGEST_TOKEN out of logs. Verify with a dry-run curl before any commit.",
+      },
+      {
+        id: "m2b",
         role: "assistant",
         content: "Added CORTEX_INGEST_TOKEN bearer check on POST /v1/ingest.",
       },
@@ -39,7 +52,19 @@ export const FIXTURE_SESSIONS: SessionDetail[] = [
       {
         id: "t1",
         toolName: "Write",
-        argsSummary: "apps/api/src/index.ts",
+        argsSummary: "file_path=apps/api/src/index.ts",
+        status: "ok",
+      },
+      {
+        id: "t2",
+        toolName: "Bash",
+        argsSummary: "git commit -m \"feat: bearer auth on ingest\"",
+        status: "ok",
+      },
+      {
+        id: "t3",
+        toolName: "Write",
+        argsSummary: "file_path=.claude/plans/INGEST_AUTH_PLAN.md content=# Plan\nVerify with curl\n",
         status: "ok",
       },
     ],
@@ -58,15 +83,28 @@ export const FIXTURE_SESSIONS: SessionDetail[] = [
       {
         id: "m3",
         role: "user",
-        content: "Implement remote MCP with search tools.",
+        content: "Goal: Add",
       },
       {
         id: "m4",
         role: "assistant",
-        content: "Scaffolding apps/mcp-server with streamable HTTP.",
+        content:
+          "The goal is underdefined — what should users be able to do with the MCP search tools?",
+      },
+      {
+        id: "m5",
+        role: "user",
+        content: "Just scaffold apps/mcp-server with streamable HTTP for now.",
       },
     ],
-    toolCalls: [],
+    toolCalls: [
+      {
+        id: "t4",
+        toolName: "Write",
+        argsSummary: "file_path=apps/mcp-server/src/index.ts",
+        status: "ok",
+      },
+    ],
     distillate: null,
   },
 ];

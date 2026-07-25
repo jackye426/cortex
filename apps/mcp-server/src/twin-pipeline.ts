@@ -29,6 +29,7 @@ import { refreshWeeklyMirror } from "./intrapersonal/weekly-mirror.js";
 import { snapshotOpenQuestions } from "./intrapersonal/open-questions.js";
 import { compileSelfModelDiff } from "./intrapersonal/change-explain.js";
 import { detectCycles } from "./intrapersonal/cycles.js";
+import { runCodingOpsPipeline } from "./session-ops/pipeline.js";
 
 export type TwinPipelineMode = "nightly" | "weekly" | "backfill";
 
@@ -73,6 +74,10 @@ export interface TwinPipelineResult {
   observationsScanned?: number;
   observationsWritten?: number;
   affectWritten?: number;
+  codingOpsScanned?: number;
+  codingOpsDigestsWritten?: number;
+  codingOpsScoresWritten?: number;
+  codingOpsProfileWritten?: boolean;
   interestMapWritten?: boolean;
   interestsMined?: number;
   abilityRecordsWritten?: number;
@@ -253,6 +258,20 @@ export async function runTwinPipeline(
   out.affectWritten = affect.written;
   console.info(
     `[twin-pipeline] extract-affect scanned=${affect.scanned} written=${affect.written}`,
+  );
+
+  const codingOps = await runCodingOpsPipeline(store, {
+    dryRun,
+    stubOnly: dryRun,
+    limit: Math.max(batchSize, 20),
+    skipProfile: mode === "nightly",
+  });
+  out.codingOpsScanned = codingOps.scanned;
+  out.codingOpsDigestsWritten = codingOps.digestsWritten;
+  out.codingOpsScoresWritten = codingOps.scoresWritten;
+  out.codingOpsProfileWritten = codingOps.profileWritten;
+  console.info(
+    `[twin-pipeline] coding-ops scanned=${codingOps.scanned} digests=${codingOps.digestsWritten} scores=${codingOps.scoresWritten} profile=${codingOps.profileWritten}`,
   );
 
   if (mode === "weekly" || mode === "backfill") {

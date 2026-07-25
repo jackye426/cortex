@@ -23,6 +23,9 @@ const KIND_FAMILY: Record<string, SourceFamily> = {
   weekly_mirror: "reflections",
   open_questions_snapshot: "reflections",
   change_report: "reflections",
+  session_ops_digest: "ai_sessions",
+  episode_score: "ai_sessions",
+  coding_builder_profile: "ai_sessions",
 };
 
 const RECORD_FAMILY: Record<string, SourceFamily> = {

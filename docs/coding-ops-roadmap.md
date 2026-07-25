@@ -668,6 +668,13 @@ A coding-ops fixture pack (Cursor + Claude + Codex) must satisfy:
 | Slice | Status |
 |-------|--------|
 | O0 contract (this doc) | Active |
-| S1–S6 implementation | Not started |
+| S1 session-ops extract | Shipped (v1) — `session-ops/extract-events.ts`, distillate `session_ops_digest` |
+| S2 narratives + decisions | Shipped (v1) — stub + LLM paths; catalog in `decision_catalog.json` |
+| S3 git episodes | Partial — SHA/PR/branch soft-link + session_only; full git log collect TBD |
+| S4 five-axis scoring | Shipped (v1) — stub + LLM; `episode_score` distillates |
+| S5 builder profile + feedback | Shipped (v1) — `coding_builder_profile`, MCP tools, weekly mirror card, twin-pipeline |
+| S6 product-thinking bridge | Partial — thin-prompt detector + growth card; prior-context attach TBD |
 
-When S1 lands, update this status table and [twin.md](twin.md) capability grid.
+**MCP:** `extract_session_ops`, `list_session_ops`, `list_episode_scores`, `get_coding_builder_profile`  
+**HTTP:** `POST /v1/twin` `{ "job": "coding-ops" }`  
+**Pipeline:** nightly extracts digests/scores; weekly builds profile + mirror coding_ops card.

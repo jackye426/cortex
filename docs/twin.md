@@ -10,7 +10,7 @@ Unified memory substrate (session sampling, lenses, YouTube digests, `ask_mirror
 
 | Layer | Capability | Status in repo |
 |-------|------------|----------------|
-| **O\*** Coding ops | Session ops extract → episodes → 5-axis scores → builder profile (planned) | Roadmap — [coding-ops-roadmap.md](coding-ops-roadmap.md) |
+| **O\*** Coding ops | Session ops → episodes → 5-axis scores → coding builder profile + weekly card | Shipped v1 — [coding-ops-roadmap.md](coding-ops-roadmap.md) |
 | **C** RAG | `distillates.embedding` + hybrid `search_memory`; embed on write; `pnpm embed-backfill` | Production-useful |
 | **C+** Lenses | `mode=operational\|reflective\|both` + domain/topic filters | Shipped |
 | **C+** Mirror | `ask_mirror` cited synthesis (ephemeral) | Shipped |

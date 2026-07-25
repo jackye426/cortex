@@ -13,7 +13,7 @@ Personal AI/session vault, canonical store, and remote MCP. **Collectors run nat
 | Distillates | OpenAI-compatible HTTP (`OPENAI_API_KEY`); embed on write; `pnpm embed-backfill` for existing rows |
 | Twin (D1–D5) | Entities, project briefs, priority_vs_actual, decisions, self_model/portrait, allocator_context, ask_mirror — see [docs/twin.md](docs/twin.md) / [docs/memory-substrate.md](docs/memory-substrate.md) |
 | Intrapersonal (I0–I6) | Shipped (MCP-first): source-balanced evidence, observations, interests + Interest Map, hypothesis ledger with confirm/reject/refine, experiments/outcomes, weekly mirror, open questions, longitudinal diffs, VIR metrics, portrait-v2 — [docs/intrapersonal-roadmap.md](docs/intrapersonal-roadmap.md) |
-| Coding ops (O0–O6) | Planned: Paxel-depth coding-session events, decision catalog, git episodes, five-axis scoring, coding builder profile + weekly/MCP feedback — [docs/coding-ops-roadmap.md](docs/coding-ops-roadmap.md) |
+| Coding ops (O0–O6) | v1 shipped (MCP-first): session ops extract, decision catalog, episode scores, coding builder profile + weekly mirror card — [docs/coding-ops-roadmap.md](docs/coding-ops-roadmap.md) |
 | Source adapters | Email/GitHub/calendar/drive + browser/spotify/reading interest digests — [docs/source-adapters.md](docs/source-adapters.md) |
 | Parallel data | YouTube Takeout + ChatGPT export (sharded ZIP supported) — does not block MCP |
 
