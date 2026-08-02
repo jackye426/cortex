@@ -111,7 +111,10 @@ function candidatesFromDistillate(d: DistillateRow): UpsertObservationInput[] {
     for (const text of asSignalTexts(d.metadata.frictionSignals)) {
       push(text, "observation", 0.6, { signal: "friction" });
     }
-    for (const text of asSignalTexts(d.metadata.commitments)) {
+    // Distillate stores explicitCommitments; keep legacy `commitments` alias.
+    for (const text of asSignalTexts(
+      d.metadata.explicitCommitments ?? d.metadata.commitments,
+    )) {
       push(text, "self_report", 0.55, { signal: "commitment" });
     }
   }

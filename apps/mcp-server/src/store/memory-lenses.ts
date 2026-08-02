@@ -27,6 +27,8 @@ export const REFLECTIVE_KINDS = [
   "change_report",
   "portrait",
   "self_model",
+  "llm_operator_profile",
+  "llm_work_mirror",
 ] as const;
 
 /** Session summaries also carry reflective observation fields — included in both. */

@@ -675,6 +675,8 @@ A coding-ops fixture pack (Cursor + Claude + Codex) must satisfy:
 | S5 builder profile + feedback | Shipped (v1) — `coding_builder_profile`, MCP tools, weekly mirror card, twin-pipeline |
 | S6 product-thinking bridge | Partial — thin-prompt detector + growth card; prior-context attach TBD |
 
+**Routing:** coding-ops only processes `cursor` / `claude-code` / `codex`. ChatGPT sessions go to **LLM Work Mirror** ([llm-work-mirror-roadmap.md](llm-work-mirror-roadmap.md)).
+
 **MCP:** `extract_session_ops`, `list_session_ops`, `list_episode_scores`, `get_coding_builder_profile`  
 **HTTP:** `POST /v1/twin` `{ "job": "coding-ops" }`  
 **Pipeline:** nightly extracts digests/scores; weekly builds profile + mirror coding_ops card.  

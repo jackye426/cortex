@@ -1,75 +1,91 @@
 /**
- * Coding ops pipeline — extract → narrative → decisions → episodes → scores → profile.
- * Persists compiled views as distillates (session_ops_digest, episode_score, coding_builder_profile).
+ * LLM-ops pipeline — extract → episodes → decisions → scores → profile.
+ * Distillates: llm_ops_digest, llm_episode_score, llm_operator_profile.
  */
 import { isoWeekKey } from "../week-helpers.js";
 import { stableSubjectUuid } from "../stable-id.js";
 import type { CortexStore } from "../store/index.js";
 import type { DistillateRow } from "../store/types.js";
-import { classifySessionDecisions } from "./decisions.js";
-import { extractSessionOps } from "./extract-events.js";
-import { buildEpisodesFromDigests } from "./git-episodes.js";
-import { generateSessionNarrative } from "./narrative.js";
-import { buildCodingBuilderProfile } from "./profile.js";
-import { scoreEpisode } from "./score-episode.js";
+import { deriveLlmDecisions, extractLlmOps } from "./extract-events.js";
+import { buildLlmEpisodes } from "./episodes.js";
+import { buildLlmOperatorProfile } from "./profile.js";
+import { scoreLlmEpisode } from "./score-episode.js";
 import type {
-  CodingBuilderProfile,
-  CodingDecision,
-  EpisodeScore,
-  SessionOpsDigest,
+  LlmDecision,
+  LlmEpisodeScore,
+  LlmOpsDigest,
+  LlmOperatorProfile,
 } from "./types.js";
-import { isCodingOpsSource } from "../llm-ops/types.js";
+import { isCodingOpsSource, isLlmOpsSource } from "./types.js";
 
-export interface RunCodingOpsOptions {
+export interface RunLlmOpsOptions {
   limit?: number;
   dryRun?: boolean;
-  stubOnly?: boolean;
   skipProfile?: boolean;
   sessionIds?: string[];
+  /** When true, also attempt non-chatgpt sources that are not coding-ops (rare). */
+  includeUnknownChatSources?: boolean;
 }
 
-export interface RunCodingOpsResult {
+export interface RunLlmOpsResult {
   dryRun: boolean;
   scanned: number;
+  skipped: number;
   digestsWritten: number;
   decisions: number;
   episodes: number;
   scoresWritten: number;
   profileWritten: boolean;
-  profile: CodingBuilderProfile | null;
-  samples: Array<{ sessionId: string; events: number; decisions: number }>;
+  profile: LlmOperatorProfile | null;
+  samples: Array<{
+    sessionId: string;
+    sourceId: string;
+    context: string;
+    skipReason: string | null;
+    events: number;
+  }>;
 }
 
-function digestContent(d: SessionOpsDigest): string {
+function digestContent(d: LlmOpsDigest): string {
   return [
-    `Session ops for ${d.title ?? d.sessionId} (${d.sourceId}).`,
-    `Events=${d.events.length}, steering=${d.steeringTraces.length}, plans=${d.planFiles.length}.`,
+    `LLM ops for ${d.title ?? d.sessionId} (${d.sourceId}).`,
+    `context=${d.context} role=${d.llmRole} skip=${d.skipReason ?? "none"}`,
+    `Events=${d.events.length} userTurns=${d.signals.userMessageCount}`,
     `First prompt: ${d.firstPrompt ?? "(none)"}`,
-    `Signals: product=${d.sessionSignals.productReferences} redirects≈${d.steeringTraces.filter((t) => t.kind === "redirect").length}`,
+    `Signals: thin=${d.signals.thinBriefCount} redirects=${d.signals.redirectCount} proofs=${d.signals.proofDemandCount} closure=${d.signals.closureActCount}`,
   ].join("\n");
 }
 
-export async function runCodingOpsPipeline(
+function shouldConsiderSource(
+  sourceId: string,
+  includeUnknown: boolean,
+): boolean {
+  if (isCodingOpsSource(sourceId)) return false;
+  if (isLlmOpsSource(sourceId)) return true;
+  return includeUnknown;
+}
+
+export async function runLlmOpsPipeline(
   store: CortexStore,
-  options: RunCodingOpsOptions = {},
-): Promise<RunCodingOpsResult> {
+  options: RunLlmOpsOptions = {},
+): Promise<RunLlmOpsResult> {
   const dryRun = Boolean(options.dryRun);
-  const stubOnly = Boolean(options.stubOnly) || dryRun;
-  const limit = options.limit ?? 20;
+  const limit = options.limit ?? 30;
+  const includeUnknown = Boolean(options.includeUnknownChatSources);
 
   const envelopes = await store.listSessionsForDistillate(limit, {
     skipDistilled: false,
   });
 
-  const digests: SessionOpsDigest[] = [];
-  const decisions: CodingDecision[] = [];
-  const narratives = new Map<string, string>();
-  const samples: RunCodingOpsResult["samples"] = [];
+  const digests: LlmOpsDigest[] = [];
+  const decisions: LlmDecision[] = [];
+  const samples: RunLlmOpsResult["samples"] = [];
   let digestsWritten = 0;
+  let skipped = 0;
 
   for (const env of envelopes) {
-    // Hard route: ChatGPT / non-coding sessions belong to llm-ops, not coding-ops.
-    if (!isCodingOpsSource(env.sourceId)) {
+    if (!shouldConsiderSource(env.sourceId, includeUnknown)) {
+      skipped += 1;
       continue;
     }
 
@@ -81,16 +97,14 @@ export async function runCodingOpsPipeline(
           ? meta.cortexSessionId
           : null;
 
-    // Prefer getSession when we have a uuid; else synthesize from envelope
     let detail = sessionId ? await store.getSession(sessionId) : null;
     if (!detail) {
-      // Build a minimal SessionDetail from envelope sampled turns
       const turns = env.sampledTurns ?? [];
       detail = {
         id:
           sessionId ??
           stableSubjectUuid(
-            "session-ops",
+            "llm-ops",
             `${env.sourceId}:${env.sourceSessionId}`,
           ),
         sourceId: env.sourceId,
@@ -105,12 +119,7 @@ export async function runCodingOpsPipeline(
           role: t.role,
           content: t.content,
         })),
-        toolCalls: (env.toolSummaries ?? []).map((t, i) => ({
-          id: `tool-${i}`,
-          toolName: t.split(/\s+/)[0] || "Tool",
-          argsSummary: t,
-          status: "ok",
-        })),
+        toolCalls: [],
         distillate: null,
       };
     }
@@ -122,35 +131,32 @@ export async function runCodingOpsPipeline(
       continue;
     }
 
-    const digest = extractSessionOps(detail);
-    const narrative = await generateSessionNarrative(digest, { stubOnly });
-    digest.sessionIntent = narrative.sessionIntent;
-    narratives.set(digest.sessionId, narrative.markdown);
-
-    const sessionDecisions = await classifySessionDecisions(digest, {
-      stubOnly,
-    });
-    decisions.push(...sessionDecisions);
+    const digest = extractLlmOps(detail);
     digests.push(digest);
     samples.push({
       sessionId: digest.sessionId,
+      sourceId: digest.sourceId,
+      context: digest.context,
+      skipReason: digest.skipReason,
       events: digest.events.length,
-      decisions: sessionDecisions.length,
     });
+
+    if (digest.skipReason) {
+      skipped += 1;
+      continue;
+    }
 
     if (!dryRun) {
       await store.upsertDistillate({
         subjectType: "session",
         subjectId: digest.sessionId,
-        kind: "session_ops_digest",
+        kind: "llm_ops_digest",
         content: digestContent(digest),
         embeddingRef: null,
-        model: narrative.model,
+        model: "llm-ops-v1",
         metadata: {
           ...digest,
-          narrativeMarkdown: narrative.markdown,
-          decisions: sessionDecisions,
-          codingOpsVersion: 1,
+          llmOpsVersion: 1,
         },
       });
       digestsWritten += 1;
@@ -159,31 +165,36 @@ export async function runCodingOpsPipeline(
     }
   }
 
-  const episodes = buildEpisodesFromDigests(digests, []);
-  const scores: EpisodeScore[] = [];
+  const scoreable = digests.filter((d) => !d.skipReason);
+  const episodes = buildLlmEpisodes(scoreable);
+  for (const d of scoreable) {
+    const ep = episodes.find((e) => e.sessionIds.includes(d.sessionId));
+    decisions.push(...deriveLlmDecisions(d, ep?.id ?? null));
+  }
+
+  const scores: LlmEpisodeScore[] = [];
   let scoresWritten = 0;
   for (const ep of episodes) {
-    const scored = await scoreEpisode(ep, digests, narratives, decisions, {
-      stubOnly,
-    });
+    const scored = scoreLlmEpisode(ep, scoreable, decisions);
     scores.push(scored);
     if (!dryRun) {
       await store.upsertDistillate({
         subjectType: "episode",
         subjectId: ep.id,
-        kind: "episode_score",
+        kind: "llm_episode_score",
         content: [
           scored.title,
           scored.facts,
           scored.interpretation,
           `scores=${JSON.stringify(scored.scores)}`,
+          `omitted=${JSON.stringify(scored.omittedAxes)}`,
         ].join("\n"),
         embeddingRef: null,
         model: scored.model,
         metadata: {
           episode: ep,
           score: scored,
-          codingOpsVersion: 1,
+          llmOpsVersion: 1,
         },
       });
       scoresWritten += 1;
@@ -192,29 +203,39 @@ export async function runCodingOpsPipeline(
     }
   }
 
-  let profile: CodingBuilderProfile | null = null;
+  let profile: LlmOperatorProfile | null = null;
   let profileWritten = false;
-  if (!options.skipProfile && digests.length > 0) {
-    profile = buildCodingBuilderProfile({ digests, decisions, scores });
+  if (!options.skipProfile && scoreable.length > 0) {
+    profile = buildLlmOperatorProfile({
+      digests,
+      decisions,
+      scores,
+      skipped,
+    });
     if (!dryRun) {
       const weekKey = isoWeekKey();
-      const subjectId = stableSubjectUuid("coding-builder-profile", weekKey);
+      const subjectId = stableSubjectUuid("llm-operator-profile", weekKey);
       await store.upsertDistillate({
         subjectType: "owner_week",
         subjectId,
-        kind: "coding_builder_profile",
+        kind: "llm_operator_profile",
         content: [
-          `Coding builder profile ${weekKey} band=${profile.band ?? "?"}.`,
+          `LLM operator profile ${weekKey}.`,
           `Axes: ${JSON.stringify(profile.axes)}`,
-          ...profile.growthEdges.map((g) => `Growth: ${g.question} — ${g.value}`),
-          ...profile.strengths.map((s) => `Strength: ${s.question} — ${s.value}`),
+          `Contexts: ${JSON.stringify(profile.contextMix)}`,
+          ...profile.growthEdges.map(
+            (g) => `Growth: ${g.question} — ${g.value}`,
+          ),
+          ...profile.strengths.map(
+            (s) => `Strength: ${s.question} — ${s.value}`,
+          ),
         ].join("\n"),
         embeddingRef: null,
-        model: "coding-ops-v1",
+        model: "llm-ops-v1",
         metadata: {
           profile,
           weekKey,
-          codingOpsVersion: 1,
+          llmOpsVersion: 1,
         },
       });
       profileWritten = true;
@@ -226,6 +247,7 @@ export async function runCodingOpsPipeline(
   return {
     dryRun,
     scanned: digests.length,
+    skipped,
     digestsWritten,
     decisions: decisions.length,
     episodes: episodes.length,
@@ -236,56 +258,55 @@ export async function runCodingOpsPipeline(
   };
 }
 
-export async function getLatestCodingBuilderProfile(
+export async function getLatestLlmOperatorProfile(
   store: CortexStore,
-): Promise<{ distillate: DistillateRow; profile: CodingBuilderProfile } | null> {
+): Promise<{ distillate: DistillateRow; profile: LlmOperatorProfile } | null> {
   const rows = await store.listDistillates({
     limit: 5,
-    kinds: ["coding_builder_profile"],
+    kinds: ["llm_operator_profile"],
   });
   const row = rows[0];
   if (!row) return null;
-  const profile = row.metadata.profile as CodingBuilderProfile | undefined;
+  const profile = row.metadata.profile as LlmOperatorProfile | undefined;
   if (!profile) return null;
   return { distillate: row, profile };
 }
 
-export async function listEpisodeScores(
+export async function listLlmEpisodeScores(
   store: CortexStore,
   options: { limit?: number } = {},
 ): Promise<
-  Array<{ distillate: DistillateRow; score: EpisodeScore; episodeId: string }>
+  Array<{ distillate: DistillateRow; score: LlmEpisodeScore; episodeId: string }>
 > {
   const rows = await store.listDistillates({
     limit: options.limit ?? 40,
-    kinds: ["episode_score"],
+    kinds: ["llm_episode_score"],
   });
   const out: Array<{
     distillate: DistillateRow;
-    score: EpisodeScore;
+    score: LlmEpisodeScore;
     episodeId: string;
   }> = [];
   for (const row of rows) {
-    const score = row.metadata.score as EpisodeScore | undefined;
+    const score = row.metadata.score as LlmEpisodeScore | undefined;
     if (!score) continue;
     out.push({ distillate: row, score, episodeId: row.subjectId });
   }
   return out;
 }
 
-export async function listSessionOpsDigests(
+export async function listLlmOpsDigests(
   store: CortexStore,
   options: { limit?: number; sessionId?: string } = {},
-): Promise<Array<{ distillate: DistillateRow; digest: SessionOpsDigest }>> {
+): Promise<Array<{ distillate: DistillateRow; digest: LlmOpsDigest }>> {
   const rows = await store.listDistillates({
     limit: options.limit ?? 40,
-    kinds: ["session_ops_digest"],
+    kinds: ["llm_ops_digest"],
   });
-  const out: Array<{ distillate: DistillateRow; digest: SessionOpsDigest }> =
-    [];
+  const out: Array<{ distillate: DistillateRow; digest: LlmOpsDigest }> = [];
   for (const row of rows) {
     if (options.sessionId && row.subjectId !== options.sessionId) continue;
-    const digest = row.metadata as unknown as SessionOpsDigest;
+    const digest = row.metadata as unknown as LlmOpsDigest;
     if (!digest?.sessionId && !digest?.events) continue;
     out.push({
       distillate: row,
