@@ -1,6 +1,26 @@
 # Data-verse visualization
 
-Ikeda-style computational frontend for Cortex. Product fork lives at [`apps/data-verse`](../apps/data-verse). The Lovable-hosted upstream remains at [jackye426/data-verse-render](https://github.com/jackye426/data-verse-render) (local backup: `../data-verse-render-backup`); Cortex owns the integrated app.
+Ikeda-style computational frontend for Cortex. Source of truth: [`apps/data-verse`](../apps/data-verse).
+
+## Live personal dashboard (Railway — preferred)
+
+**URL:** https://cortexdata-verse-production.up.railway.app
+
+Railway service `@cortex/data-verse` serves the Vite build via `server.mjs`, which proxies **`/api/viz/*`** to the MCP viz API. Your bearer token stays on the server (`CORTEX_MCP_TOKEN` on the data-verse service), not in the browser.
+
+| Railway variable | Purpose |
+|------------------|---------|
+| `CORTEX_MCP_TOKEN` | Same bearer as `@cortex/mcp-server` |
+| `VIZ_API_URL` | Optional; defaults to MCP origin |
+| `RAILWAY_DOCKERFILE_PATH` | `apps/data-verse/Dockerfile` |
+
+Build/deploy: push to `jackye426/cortex` `main`; Railway builds from the Dockerfile at repo root context.
+
+## Optional / legacy (Lovable)
+
+[jackye426/data-verse-render](https://github.com/jackye426/data-verse-render) → https://data-verse-render.lovable.app
+
+Uses TanStack server functions + Lovable secrets. Prefer Railway unless you want Lovable's editor sync.
 
 ## Indexes
 
@@ -17,28 +37,24 @@ Ikeda-style computational frontend for Cortex. Product fork lives at [`apps/data
 
 Shared contracts: [`packages/viz-contracts`](../packages/viz-contracts).
 
-## Run (fixtures)
+## Run locally (fixtures)
 
 ```powershell
 pnpm --filter @cortex/viz-contracts build
 pnpm --filter @cortex/data-verse dev
 ```
 
-Opens on http://localhost:5179. With no `VITE_VIZ_API_URL`, the UI uses deterministic fixtures (AC2).
+Opens on http://localhost:5179. Without `VITE_VIZ_API_URL`, the UI uses deterministic fixtures.
 
-## Live personal dashboard (Lovable)
+## Run locally (live MCP)
 
-URL: https://data-verse-render.lovable.app  
-Repo: [jackye426/data-verse-render](https://github.com/jackye426/data-verse-render)
-
-Server functions proxy to Railway MCP. In Lovable **Secrets**, set:
-
-| Name | Value |
-|------|--------|
-| `CORTEX_MCP_TOKEN` | Same bearer as Railway MCP |
-| `VIZ_API_URL` | Optional; default `https://cortexmcp-server-production-1c59.up.railway.app` |
-
-Without the token, the live site falls back to fixtures.
+```powershell
+pnpm --filter @cortex/mcp-server dev
+$env:VITE_VIZ_API_URL="http://localhost:8790"
+$env:VITE_VIZ_BEARER="<your-mcp-token>"
+$env:VITE_VIZ_FIXTURES="0"
+pnpm --filter @cortex/data-verse dev
+```
 
 ### Projection API (mcp-server)
 
@@ -50,6 +66,8 @@ Without the token, the live site falls back to fixtures.
 | POST | `/v1/viz/projection` | Offline embedding→3D snapshot (`kind=viz_projection`) |
 | POST | `/v1/twin` `{ "job": "viz-projection" }` | Same snapshot job |
 
+On Railway, the dashboard calls these via **`/api/viz/...`** (same-origin proxy).
+
 Weekly `twin-pipeline` also writes the viz projection snapshot after portrait.
 
 ## Acceptance checklist
@@ -57,6 +75,6 @@ Weekly `twin-pipeline` also writes the viz projection snapshot after portrait.
 - **AC1** ModeNav shows 00–05; all routes use `DvFrame`.
 - **AC2** Fixtures render non-empty 01–05 offline.
 - **AC3** 01–04 never import InsightCard detail fields; 05 never mounts Brain/Particle/Insight/Text as primary.
-- **AC4–AC5** Live density/ledger/verdict behind bearer; 401 without auth.
+- **AC4–AC5** Live density/ledger/verdict behind bearer; 401 without auth on MCP direct.
 - **AC6** Visual intent: density = atmosphere; ledger = only place to act.
-- **AC7** `pnpm --filter @cortex/data-verse build` succeeds; no Lovable runtime in the Cortex fork.
+- **AC7** `pnpm --filter @cortex/data-verse build` succeeds.

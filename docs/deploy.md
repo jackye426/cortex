@@ -26,7 +26,7 @@ Project services: `@cortex/api` + `@cortex/mcp-server` + **`@cortex/data-verse`*
 |---------|----------------------|-------|-------|
 | API | `https://cortexapi-production-9b74.up.railway.app` | `pnpm --filter @cortex/api build` | `pnpm --filter @cortex/api start` |
 | MCP | `https://cortexmcp-server-production-1c59.up.railway.app` | `pnpm --filter @cortex/mcp-server build` | `pnpm --filter @cortex/mcp-server start` |
-| Data-verse | Railway domain for `@cortex/data-verse` | Dockerfile `apps/data-verse/Dockerfile` | `node server.mjs` (proxies `/api/viz` → MCP) |
+| Data-verse | `https://cortexdata-verse-production.up.railway.app` | Dockerfile `apps/data-verse/Dockerfile` | `node server.mjs` (proxies `/api/viz` → MCP) |
 
 **Data-verse env:** `CORTEX_MCP_TOKEN` (same as MCP), optional `VIZ_API_URL` (defaults to MCP origin). Token stays server-side — prefer Railway over Lovable for this dashboard.
 
