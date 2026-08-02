@@ -35,6 +35,12 @@ import {
   listSessionOpsDigests,
   runCodingOpsPipeline,
 } from "./session-ops/pipeline.js";
+import {
+  getLatestLlmOperatorProfile,
+  listLlmEpisodeScores,
+  listLlmOpsDigests,
+  runLlmOpsPipeline,
+} from "./llm-ops/pipeline.js";
 import { auditSourceCoverage } from "./intrapersonal/source-health.js";
 import { extractAffectProxies, logReflection } from "./intrapersonal/affect.js";
 import { mineInterests } from "./intrapersonal/interest-mine.js";
@@ -1156,6 +1162,109 @@ export function registerCortexTools(
         skipProfile,
       });
       return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "extract_llm_ops",
+    {
+      description:
+        "Run LLM Work Mirror pipeline on ChatGPT/export sessions: events, episodes, six-axis scores, llm_operator_profile. Coding sources (cursor/claude-code/codex) are excluded (use extract_session_ops). dryRun skips writes.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        dryRun: z.boolean().optional(),
+        skipProfile: z.boolean().optional(),
+      },
+    },
+    async ({ limit, dryRun, skipProfile }) => {
+      const result = await runLlmOpsPipeline(store, {
+        limit,
+        dryRun,
+        skipProfile,
+      });
+      return textResult({ mode: store.mode, ...result });
+    },
+  );
+
+  server.registerTool(
+    "list_llm_ops_episodes",
+    {
+      description:
+        "List llm_ops_digest rows (context, signals, events) for LLM Work Mirror.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+        sessionId: z.string().optional(),
+      },
+    },
+    async ({ limit, sessionId }) => {
+      const rows = await listLlmOpsDigests(store, { limit, sessionId });
+      return textResult({
+        mode: store.mode,
+        count: rows.length,
+        digests: rows.map((r) => ({
+          distillateId: r.distillate.id,
+          sessionId: r.digest.sessionId,
+          sourceId: r.digest.sourceId,
+          title: r.digest.title,
+          context: r.digest.context,
+          llmRole: r.digest.llmRole,
+          skipReason: r.digest.skipReason,
+          events: r.digest.events?.length ?? 0,
+          signals: r.digest.signals,
+          firstPrompt: r.digest.firstPrompt,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "list_llm_episode_scores",
+    {
+      description:
+        "List llm_episode_score distillates (outcome/framing/steering/epistemic/verification/planning).",
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+    },
+    async ({ limit }) => {
+      const rows = await listLlmEpisodeScores(store, { limit });
+      return textResult({
+        mode: store.mode,
+        count: rows.length,
+        scores: rows.map((r) => ({
+          distillateId: r.distillate.id,
+          episodeId: r.episodeId,
+          title: r.score.title,
+          context: r.score.context,
+          scores: r.score.scores,
+          omittedAxes: r.score.omittedAxes,
+          confidence: r.score.confidence,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "get_llm_operator_profile",
+    {
+      description:
+        "Latest llm_operator_profile — how you use chats (axes, strengths, growth edges, context mix). Sibling to get_coding_builder_profile.",
+      inputSchema: {},
+    },
+    async () => {
+      const latest = await getLatestLlmOperatorProfile(store);
+      if (!latest) {
+        return textResult({
+          mode: store.mode,
+          profile: null,
+          hint: "Run extract_llm_ops (or weekly twin-pipeline) after ChatGPT export sessions exist.",
+        });
+      }
+      return textResult({
+        mode: store.mode,
+        distillateId: latest.distillate.id,
+        profile: latest.profile,
+      });
     },
   );
 

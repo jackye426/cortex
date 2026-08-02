@@ -13,6 +13,7 @@ import {
 } from "./insight-card.js";
 import type { EvidenceRef, InsightCard, SourceFamily } from "./types.js";
 import { getLatestCodingBuilderProfile } from "../session-ops/pipeline.js";
+import { getLatestLlmOperatorProfile } from "../llm-ops/pipeline.js";
 
 const THEMES = [
   "energy",
@@ -325,10 +326,63 @@ export async function buildWeeklyMirror(
     );
   }
 
+  // LLM Work Mirror section — how you think with chats (non-coding)
+  try {
+    const llm = await getLatestLlmOperatorProfile(store);
+    if (llm?.profile) {
+      const p = llm.profile;
+      const growth = p.growthEdges[0];
+      const strength = p.strengths[0];
+      notes.push(
+        `LLM ops: scored=${p.metrics.sessionsScored}, episodes=${p.metrics.episodesScored}, thinBriefRate=${p.metrics.thinBriefRate.toFixed(2)}.`,
+      );
+      filtered.push(
+        serializeInsightCard({
+          id: `wm-${key}-llm_ops`,
+          theme: "llm_ops",
+          notice: growth
+            ? `How you think with chats — growth edge: ${growth.question} (${growth.value}). ${growth.subtitle}`
+            : strength
+              ? `How you think with chats — ${strength.question}: ${strength.value}. ${strength.subtitle}`
+              : "LLM operator profile available; run extract_llm_ops on ChatGPT export sessions.",
+          why: "Chat judgment (framing, proof, closure) is a separate closed loop from coding-agent steering.",
+          evidence: [
+            ev(
+              "ai_sessions",
+              growth?.subtitle || strength?.subtitle || "llm_operator_profile",
+              0.55,
+            ),
+          ],
+          confidence: 0.55,
+          contradictions: [
+            growth?.contradiction ||
+              "Off-chat decisions and DocMap research will not appear in llm-ops scores.",
+          ],
+          rival:
+            growth?.rival ||
+            "Exploration without a decision can still be valuable — closure debt is contextual.",
+          test:
+            growth?.experiment ||
+            "On the next research/planning chat: name job + done-when first; end with a decision or explicit park.",
+          provisional: true,
+          metadata: {
+            llmOperatorProfile: true,
+            axes: p.axes,
+            contextMix: p.contextMix,
+          },
+        }),
+      );
+    }
+  } catch (err) {
+    notes.push(
+      `LLM ops profile unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   return {
     weekKey: key,
     generatedAt: new Date().toISOString(),
-    cards: filtered.slice(0, 6),
+    cards: filtered.slice(0, 7),
     notes,
   };
 }

@@ -11,6 +11,7 @@ Unified memory substrate (session sampling, lenses, YouTube digests, `ask_mirror
 | Layer | Capability | Status in repo |
 |-------|------------|----------------|
 | **O\*** Coding ops | Session ops → episodes → 5-axis scores → coding builder profile + weekly card | Shipped v1 — [coding-ops-roadmap.md](coding-ops-roadmap.md) |
+| **L\*** LLM Work Mirror | ChatGPT/export sessions → llm-ops events → 6-axis scores → llm_operator_profile + weekly card | S0–S5 on this path — [llm-work-mirror-roadmap.md](llm-work-mirror-roadmap.md) |
 | **C** RAG | `distillates.embedding` + hybrid `search_memory`; embed on write; `pnpm embed-backfill` | Production-useful |
 | **C+** Lenses | `mode=operational\|reflective\|both` + domain/topic filters | Shipped |
 | **C+** Mirror | `ask_mirror` cited synthesis (ephemeral) | Shipped |
@@ -69,6 +70,10 @@ pnpm intrapersonal-metrics -- --fixture --windowDays=30
 pnpm youtube-digest -- --dry-run
 pnpm quality-gate -- --fixture --limit=11
 pnpm quality-gate -- --limit=11
+
+# LLM Work Mirror (ChatGPT/export — not coding agents)
+# MCP: extract_llm_ops / list_llm_ops_episodes / list_llm_episode_scores / get_llm_operator_profile
+# HTTP: POST /v1/twin { "job": "llm-ops" }
 
 # Scheduled pipeline (nightly / weekly / historical backfill)
 pnpm twin-pipeline -- --mode=nightly

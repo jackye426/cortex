@@ -71,6 +71,50 @@ export const FIXTURE_SESSIONS: SessionDetail[] = [
     distillate: null,
   },
   {
+    id: "33333333-3333-4333-8333-333333333333",
+    sourceId: "chatgpt-export",
+    sourceSessionId: "fixture-chatgpt-1",
+    title: "Research LLM evaluation methods",
+    workspace: null,
+    startedAt: "2026-07-20T10:00:00.000Z",
+    endedAt: "2026-07-20T11:00:00.000Z",
+    metadata: { fixture: true },
+    messages: [
+      {
+        id: "c1",
+        role: "user",
+        content:
+          "Compare Paxel-style session evaluation vs plain chat summaries. Done when I have a 5-bullet decision brief. Out of scope: building a product UI.",
+      },
+      {
+        id: "c2",
+        role: "assistant",
+        content:
+          "Option A: event extract then score. Option B: summarize only. Which approach?",
+      },
+      {
+        id: "c3",
+        role: "user",
+        content:
+          "Go with option A instead. Cite two concrete differences and give a rival explanation for why summaries alone feel insightful but fail.",
+      },
+      {
+        id: "c4",
+        role: "assistant",
+        content:
+          "Long synthesis: event→score catches steering; summaries miss redirects. Rival: summaries feel deep because they narrate confidently without falsifiers.",
+      },
+      {
+        id: "c5",
+        role: "user",
+        content:
+          "Decision: we will use event→score→profile. Next action: write the axis list tonight.",
+      },
+    ],
+    toolCalls: [],
+    distillate: null,
+  },
+  {
     id: "22222222-2222-4222-8222-222222222222",
     sourceId: "cursor",
     sourceSessionId: "fixture-cursor-1",

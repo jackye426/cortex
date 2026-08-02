@@ -30,6 +30,7 @@ import { snapshotOpenQuestions } from "./intrapersonal/open-questions.js";
 import { compileSelfModelDiff } from "./intrapersonal/change-explain.js";
 import { detectCycles } from "./intrapersonal/cycles.js";
 import { runCodingOpsPipeline } from "./session-ops/pipeline.js";
+import { runLlmOpsPipeline } from "./llm-ops/pipeline.js";
 
 export type TwinPipelineMode = "nightly" | "weekly" | "backfill";
 
@@ -78,6 +79,10 @@ export interface TwinPipelineResult {
   codingOpsDigestsWritten?: number;
   codingOpsScoresWritten?: number;
   codingOpsProfileWritten?: boolean;
+  llmOpsScanned?: number;
+  llmOpsDigestsWritten?: number;
+  llmOpsScoresWritten?: number;
+  llmOpsProfileWritten?: boolean;
   interestMapWritten?: boolean;
   interestsMined?: number;
   abilityRecordsWritten?: number;
@@ -272,6 +277,19 @@ export async function runTwinPipeline(
   out.codingOpsProfileWritten = codingOps.profileWritten;
   console.info(
     `[twin-pipeline] coding-ops scanned=${codingOps.scanned} digests=${codingOps.digestsWritten} scores=${codingOps.scoresWritten} profile=${codingOps.profileWritten}`,
+  );
+
+  const llmOps = await runLlmOpsPipeline(store, {
+    dryRun,
+    limit: Math.max(batchSize, 20),
+    skipProfile: mode === "nightly",
+  });
+  out.llmOpsScanned = llmOps.scanned;
+  out.llmOpsDigestsWritten = llmOps.digestsWritten;
+  out.llmOpsScoresWritten = llmOps.scoresWritten;
+  out.llmOpsProfileWritten = llmOps.profileWritten;
+  console.info(
+    `[twin-pipeline] llm-ops scanned=${llmOps.scanned} digests=${llmOps.digestsWritten} scores=${llmOps.scoresWritten} profile=${llmOps.profileWritten} skipped=${llmOps.skipped}`,
   );
 
   if (mode === "weekly" || mode === "backfill") {

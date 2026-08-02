@@ -43,6 +43,7 @@ import { refreshWeeklyMirror } from "./intrapersonal/weekly-mirror.js";
 import { snapshotOpenQuestions } from "./intrapersonal/open-questions.js";
 import { compileSelfModelVersion } from "./intrapersonal/self-model-v2.js";
 import { runCodingOpsPipeline } from "./session-ops/pipeline.js";
+import { runLlmOpsPipeline } from "./llm-ops/pipeline.js";
 loadDotEnv();
 
 const vaultStore = createStore("vault");
@@ -335,6 +336,13 @@ app.post("/v1/twin", async (c) => {
     });
     return c.json({ ok: true, job: "coding-ops", ...result });
   }
+  if (job === "llm-ops" || job === "llm-work-mirror") {
+    const result = await runLlmOpsPipeline(vaultStore, {
+      dryRun,
+      limit,
+    });
+    return c.json({ ok: true, job: "llm-ops", ...result });
+  }
   if (job === "interest-map") {
     const result = await refreshInterestMap(vaultStore, { dryRun });
     return c.json({ ok: true, job, ...result });
@@ -359,6 +367,7 @@ app.post("/v1/twin", async (c) => {
         "youtube-digest",
         "extract-observations",
         "coding-ops",
+        "llm-ops",
         "interest-map",
         "weekly-mirror",
         "open-questions",
