@@ -26,18 +26,19 @@ pnpm --filter @cortex/data-verse dev
 
 Opens on http://localhost:5179. With no `VITE_VIZ_API_URL`, the UI uses deterministic fixtures (AC2).
 
-## Run (live)
+## Live personal dashboard (Lovable)
 
-```powershell
-# terminal A — MCP/HTTP (default :8790)
-pnpm --filter @cortex/mcp-server dev
+URL: https://data-verse-render.lovable.app  
+Repo: [jackye426/data-verse-render](https://github.com/jackye426/data-verse-render)
 
-# terminal B
-$env:VITE_VIZ_API_URL="http://localhost:8790"
-$env:VITE_VIZ_BEARER="<CORTEX_MCP_TOKEN>"
-$env:VITE_VIZ_FIXTURES="0"
-pnpm --filter @cortex/data-verse dev
-```
+Server functions proxy to Railway MCP. In Lovable **Secrets**, set:
+
+| Name | Value |
+|------|--------|
+| `CORTEX_MCP_TOKEN` | Same bearer as Railway MCP |
+| `VIZ_API_URL` | Optional; default `https://cortexmcp-server-production-1c59.up.railway.app` |
+
+Without the token, the live site falls back to fixtures.
 
 ### Projection API (mcp-server)
 
