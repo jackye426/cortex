@@ -44,6 +44,13 @@ import { snapshotOpenQuestions } from "./intrapersonal/open-questions.js";
 import { compileSelfModelVersion } from "./intrapersonal/self-model-v2.js";
 import { runCodingOpsPipeline } from "./session-ops/pipeline.js";
 import { runLlmOpsPipeline } from "./llm-ops/pipeline.js";
+import {
+  applyVizVerdict,
+  buildVizDensity,
+  buildVizLedger,
+  buildVizProjectionSnapshot,
+} from "./viz/index.js";
+import type { VizLedgerChannel, VizView } from "@cortex/viz-contracts";
 loadDotEnv();
 
 const vaultStore = createStore("vault");
@@ -355,6 +362,20 @@ app.post("/v1/twin", async (c) => {
     const result = await snapshotOpenQuestions(vaultStore, { dryRun });
     return c.json({ ok: true, job, ...result });
   }
+  if (job === "viz-projection") {
+    const result = await buildVizProjectionSnapshot(vaultStore, {
+      dryRun,
+      pointLimit: limit,
+    });
+    return c.json({
+      ok: true,
+      job,
+      written: result.written,
+      dryRun: result.dryRun,
+      pointCount: result.snapshot.points.length,
+      orbitCount: result.snapshot.orbits.length,
+    });
+  }
   return c.json(
     {
       error: "unknown job",
@@ -371,6 +392,7 @@ app.post("/v1/twin", async (c) => {
         "interest-map",
         "weekly-mirror",
         "open-questions",
+        "viz-projection",
       ],
     },
     400,
@@ -654,6 +676,151 @@ app.post("/v1/twin-pipeline", async (c) => {
     maxBatches,
   });
   return c.json({ ok: true, ...result });
+});
+
+const VIZ_VIEWS = new Set<VizView>(["scan", "particle", "cross", "text"]);
+const VIZ_CHANNELS = new Set<VizLedgerChannel>([
+  "mirror",
+  "questions",
+  "self",
+  "interests",
+  "attr",
+  "diff",
+]);
+
+/** Density payloads for data-verse indexes 01–04. */
+app.get("/v1/viz/density", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      { error: "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN" },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const viewRaw = (c.req.query("view") ?? "scan") as VizView;
+  const view = VIZ_VIEWS.has(viewRaw) ? viewRaw : "scan";
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/viz/density",
+    method: "GET",
+    metadata: { view },
+  });
+  const density = await buildVizDensity(mirrorStore, view);
+  return c.json(density);
+});
+
+/** Ledger payloads for data-verse index 05. */
+app.get("/v1/viz/ledger", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      { error: "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN" },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const channelRaw = (c.req.query("channel") ?? "mirror") as VizLedgerChannel;
+  const channel = VIZ_CHANNELS.has(channelRaw) ? channelRaw : "mirror";
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/viz/ledger",
+    method: "GET",
+    metadata: { channel },
+  });
+  const ledger = await buildVizLedger(mirrorStore, channel);
+  return c.json(ledger);
+});
+
+/** VIR confirm/reject/refine from ledger controls. */
+app.post("/v1/viz/verdict", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      { error: "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN" },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let body: {
+    insightId?: string;
+    verdict?: string;
+    note?: string;
+    claim?: string;
+    useful?: boolean;
+    nonObvious?: boolean;
+    retire?: boolean;
+  };
+  try {
+    body = (await c.req.json()) as typeof body;
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  if (!body.insightId || !body.verdict) {
+    return c.json({ error: "insightId and verdict required" }, 400);
+  }
+  if (!["confirm", "reject", "refine"].includes(body.verdict)) {
+    return c.json({ error: "invalid_verdict" }, 400);
+  }
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/viz/verdict",
+    method: "POST",
+    metadata: { insightId: body.insightId, verdict: body.verdict },
+  });
+  const result = await applyVizVerdict(mirrorStore, {
+    insightId: body.insightId,
+    verdict: body.verdict as "confirm" | "reject" | "refine",
+    note: body.note,
+    claim: body.claim,
+    useful: body.useful,
+    nonObvious: body.nonObvious,
+    retire: body.retire,
+  });
+  return c.json(result, result.ok ? 200 : 404);
+});
+
+/** Offline embedding→3D snapshot for particle/scan. */
+app.post("/v1/viz/projection", async (c) => {
+  const expected = resolveMcpToken();
+  if (!expected) {
+    return c.json(
+      { error: "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN" },
+      500,
+    );
+  }
+  if (!requireBearer(c.req.header("authorization"), expected)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  let dryRun = false;
+  let pointLimit: number | undefined;
+  try {
+    const body = (await c.req.json()) as { dryRun?: boolean; pointLimit?: number };
+    dryRun = Boolean(body.dryRun);
+    if (typeof body.pointLimit === "number") pointLimit = body.pointLimit;
+  } catch {
+    // empty ok
+  }
+  void logMcpAudit({
+    token: expected,
+    route: "/v1/viz/projection",
+    method: "POST",
+    metadata: { dryRun, pointLimit },
+  });
+  const result = await buildVizProjectionSnapshot(vaultStore, { dryRun, pointLimit });
+  return c.json({
+    ok: true,
+    written: result.written,
+    dryRun: result.dryRun,
+    pointCount: result.snapshot.points.length,
+    orbitCount: result.snapshot.orbits.length,
+  });
 });
 
 async function handleMcpEndpoint(

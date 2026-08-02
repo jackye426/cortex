@@ -8,6 +8,8 @@ Unified memory substrate (session sampling, lenses, YouTube digests, `ask_mirror
 
 **Coding ops intelligence (O0–O6):** Paxel-depth session events, decision catalog, git episodes, five-axis scoring, coding builder profile + feedback. Execution plan: [coding-ops-roadmap.md](coding-ops-roadmap.md). Build-time growth-edge reminders: **[vibe-law](vibe-law.md)** (`/vibe-law` skill).
 
+**Visualization:** Ikeda-style density + ledger UI — [data-verse.md](data-verse.md) (`apps/data-verse`, contracts in `packages/viz-contracts`). Live Lovable dashboard: https://data-verse-render.lovable.app
+
 | Layer | Capability | Status in repo |
 |-------|------------|----------------|
 | **O\*** Coding ops | Session ops → episodes → 5-axis scores → coding builder profile + weekly card | Shipped v1 — [coding-ops-roadmap.md](coding-ops-roadmap.md) |

@@ -16,11 +16,14 @@
     "source-adapter": "tsx src/source-adapter-cli.ts",
     "quality-gate": "tsx src/quality-gate-cli.ts",
     "intrapersonal-metrics": "tsx src/intrapersonal-metrics-cli.ts",
+    "fill-intrapersonal": "tsx src/fill-intrapersonal-cli.ts",
+    "smoke-intrapersonal": "tsx src/smoke-intrapersonal-cli.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@cortex/core": "workspace:*",
     "@cortex/redaction": "workspace:*",
+    "@cortex/viz-contracts": "workspace:*",
     "@hono/node-server": "^1.14.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@supabase/supabase-js": "^2.110.2",

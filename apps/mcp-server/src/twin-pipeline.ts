@@ -31,6 +31,7 @@ import { compileSelfModelDiff } from "./intrapersonal/change-explain.js";
 import { detectCycles } from "./intrapersonal/cycles.js";
 import { runCodingOpsPipeline } from "./session-ops/pipeline.js";
 import { runLlmOpsPipeline } from "./llm-ops/pipeline.js";
+import { buildVizProjectionSnapshot } from "./viz/projection-job.js";
 
 export type TwinPipelineMode = "nightly" | "weekly" | "backfill";
 
@@ -90,6 +91,8 @@ export interface TwinPipelineResult {
   openQuestionsWritten?: boolean;
   cyclesDetected?: number;
   selfModelDiffWritten?: boolean;
+  vizProjectionWritten?: boolean;
+  vizProjectionPoints?: number;
 }
 
 async function runDistillateBatches(
@@ -385,6 +388,13 @@ export async function runTwinPipeline(
         `[twin-pipeline] portrait written=${portrait.written} id=${portrait.portrait?.id ?? "none"}`,
       );
     }
+
+    const vizProj = await buildVizProjectionSnapshot(store, { dryRun });
+    out.vizProjectionWritten = vizProj.written;
+    out.vizProjectionPoints = vizProj.snapshot.points.length;
+    console.info(
+      `[twin-pipeline] viz-projection written=${vizProj.written} points=${vizProj.snapshot.points.length} orbits=${vizProj.snapshot.orbits.length}`,
+    );
   }
 
   return out;

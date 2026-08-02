@@ -30,16 +30,18 @@ Personal AI/session vault, canonical store, and remote MCP. **Collectors run nat
 
 ```text
 apps/api                 Ingest API (POST /v1/ingest)
-apps/mcp-server          Remote MCP (streamable HTTP + bearer auth)
+apps/mcp-server          Remote MCP (streamable HTTP + bearer auth) + viz projection API
+apps/data-verse          Ikeda-style viz frontend (density + ledger) — docs/data-verse.md
 apps/collector           Windows collector + backfill CLI
 apps/chatgpt-extension   MV3 extension → ingest (chatgpt.com)
 packages/core            SourceAdapter, RawEnvelope, checkpoints
+packages/viz-contracts   Shared VizDensity / VizLedger DTOs
 packages/redaction       Secret patterns before upload
 packages/adapters/*      Source adapters (claude-code, codex, chatgpt-export, …)
 packages/normalize       Raw → canonical mappers
 hooks/                   Claude / Codex reference hook scripts
 supabase/                config + migrations (EU project)
-docs/                    Setup notes (mcp, deploy, twin, chatgpt, …)
+docs/                    Setup notes (mcp, deploy, twin, data-verse, chatgpt, …)
 ```
 
 ## Quick start
