@@ -1,7 +1,11 @@
 # Monorepo-friendly image for @cortex/data-verse on Railway
 FROM node:25-bookworm-slim
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install -g pnpm@10.33.0
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY packages/viz-contracts ./packages/viz-contracts
