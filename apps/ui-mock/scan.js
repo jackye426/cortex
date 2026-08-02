@@ -251,21 +251,18 @@ function buildContours(plane, slice, rand) {
       contours.push(poly);
     }
 
-    // Full outer envelope
+    // Full outer envelope with clearer interhemispheric fissure
     const outer = [];
-    const n = 160;
+    const n = 180;
     for (let i = 0; i <= n; i++) {
       const a = (i / n) * Math.PI * 2;
       const fold =
         0.045 * Math.sin(a * 8 + z * 2) +
         0.03 * Math.sin(a * 14) +
         0.02 * Math.sin(a * 22 + slice);
-      const notch = Math.exp(-Math.pow((a - Math.PI / 2) / 0.2, 2)) * 0.06;
-      const x = Math.cos(a) * (rx + fold - notch * Math.sign(Math.cos(a) || 1));
-      // interhemispheric fissure
-      const fissure =
-        Math.abs(Math.cos(a)) < 0.08 ? 0.12 * (1 - Math.abs(Math.cos(a)) / 0.08) : 0;
-      const xx = Math.cos(a) * (rx + fold) * (1 - fissure * 0.35);
+      // pinch along left-right midline for bilobed axial shape
+      const fissure = Math.exp(-Math.pow(Math.sin(a), 2) / 0.04) * 0.22;
+      const xx = Math.cos(a) * (rx + fold) * (1 - fissure);
       const yy = Math.sin(a) * (ry + fold * 0.7);
       outer.push([xx, yy]);
     }
@@ -298,69 +295,114 @@ function buildContours(plane, slice, rand) {
       contours.push(poly);
     }
   } else {
-    // SAGITTAL — side profile silhouette + internal structures
-    const sx = 0.78;
-    const sy = 0.7;
-    const profile = [];
-    const n = 120;
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const a = t * Math.PI * 2;
-      // egg-ish brain profile, flatter posterior
-      let x = Math.cos(a) * sx * (a > Math.PI ? 0.92 : 1.05);
-      let y = Math.sin(a) * sy;
-      // brainstem drop
-      if (a > 4.2 && a < 5.2) {
-        x += 0.08;
-        y += 0.25 * Math.sin((a - 4.2) / 1.0 * Math.PI);
+    // SAGITTAL — classic left-facing side profile (control points, closed)
+    const zShift = z * 0.03;
+    const key = [
+      [-0.55, 0.15], // frontal pole
+      [-0.62, -0.05],
+      [-0.58, -0.35],
+      [-0.35, -0.62], // superior frontal
+      [-0.05, -0.72],
+      [0.25, -0.68], // superior parietal
+      [0.48, -0.52],
+      [0.62, -0.28], // occipital
+      [0.68, -0.02],
+      [0.58, 0.22],
+      [0.55, 0.38], // cerebellum bulge
+      [0.42, 0.52],
+      [0.22, 0.55],
+      [0.08, 0.48],
+      [0.02, 0.62], // brainstem drop
+      [-0.05, 0.78],
+      [-0.12, 0.72],
+      [-0.08, 0.48],
+      [-0.18, 0.32], // ventral frontal
+      [-0.38, 0.28],
+      [-0.52, 0.22],
+    ];
+
+    function densify(pts, folds) {
+      const out = [];
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
+        const steps = 8;
+        for (let s = 0; s < steps; s++) {
+          const t = s / steps;
+          let x = a[0] + (b[0] - a[0]) * t;
+          let y = a[1] + (b[1] - a[1]) * t;
+          if (folds) {
+            const nrm = Math.sin(t * Math.PI);
+            x += 0.018 * nrm * Math.sin(i * 2.3 + slice * 0.07 + z);
+            y += 0.014 * nrm * Math.sin(i * 3.1 + z * 2);
+          }
+          out.push([x, y + zShift]);
+        }
       }
-      // frontal loft
-      const fold =
-        0.04 * Math.sin(a * 9 + slice * 0.05) +
-        0.025 * Math.sin(a * 17);
-      x += fold * Math.cos(a);
-      y += fold * Math.sin(a) * 0.8;
-      profile.push([x * 0.95, y * 0.95]);
+      return out;
     }
+
+    const profile = densify(key, true);
     contours.push(profile);
 
-    // Corpus callosum arc
+    // Parallel inner cortex ribbons (offset toward centroid)
+    for (const sc of [0.82, 0.64, 0.48]) {
+      const inner = profile.map(([x, y]) => [x * sc - 0.02, y * sc + 0.02]);
+      contours.push(inner);
+    }
+
+    // Corpus callosum
     const cc = [];
-    for (let i = 0; i <= 40; i++) {
-      const t = i / 40;
-      const x = -0.45 + t * 0.95;
-      const y = 0.05 + 0.12 * Math.sin(t * Math.PI) - 0.04 * (t - 0.5) ** 2;
-      cc.push([x, y + z * 0.02]);
+    for (let i = 0; i <= 48; i++) {
+      const t = i / 48;
+      const x = -0.42 + t * 0.88;
+      const y =
+        -0.02 +
+        0.14 * Math.sin(t * Math.PI) -
+        0.05 * (t - 0.5) ** 2 +
+        zShift;
+      cc.push([x, y]);
     }
     contours.push(cc);
+    // lower CC lip
+    contours.push(
+      cc.map(([x, y], i) => [x + 0.01, y + 0.06 + 0.01 * Math.sin(i * 0.4)])
+    );
 
-    // Cerebellum folds
-    for (let c = 0; c < 7; c++) {
+    // Ventricle slit
+    const vent = [];
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24;
+      vent.push([-0.15 + t * 0.35, 0.06 + 0.04 * Math.sin(t * Math.PI) + zShift]);
+    }
+    contours.push(vent);
+
+    // Cerebellum folia (posterior-inferior)
+    for (let c = 0; c < 9; c++) {
       const poly = [];
-      for (let i = 0; i < 12; i++) {
-        const t = i / 11;
-        const x = 0.25 + t * 0.35 + 0.02 * Math.sin(c);
+      for (let i = 0; i < 14; i++) {
+        const t = i / 13;
+        const x = 0.28 + t * 0.32 + 0.015 * Math.sin(c * 1.7);
         const y =
-          0.35 +
-          c * 0.04 +
-          0.03 * Math.sin(t * Math.PI * 3 + c) +
-          Math.abs(z) * 0.02;
+          0.28 +
+          c * 0.035 +
+          0.028 * Math.sin(t * Math.PI * 4 + c) +
+          Math.abs(z) * 0.015;
         poly.push([x, y]);
       }
       contours.push(poly);
     }
 
-    // Internal contour stacks
-    for (let k = 0; k < 5; k++) {
+    // Cortical fold ticks along superior surface
+    for (let g = 0; g < 14; g++) {
+      const t = g / 13;
+      const x0 = -0.5 + t * 1.05;
+      const y0 = -0.55 - 0.12 * Math.sin(t * Math.PI) + zShift;
       const poly = [];
-      const n2 = 60;
-      for (let i = 0; i <= n2; i++) {
-        const a = (i / n2) * Math.PI * 2;
-        const sc = 0.35 + k * 0.08;
-        const wobble = 0.015 * Math.sin(a * (6 + k) + slice * 0.08);
+      for (let i = 0; i < 6; i++) {
         poly.push([
-          Math.cos(a) * sx * sc + wobble - 0.05,
-          Math.sin(a) * sy * sc * 0.9 + wobble,
+          x0 + i * 0.01,
+          y0 + i * 0.035 + 0.02 * Math.sin(g + i + slice * 0.05),
         ]);
       }
       contours.push(poly);
@@ -434,13 +476,16 @@ function drawCortex(time) {
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
   contours.forEach((poly, idx) => {
-    const isOuter = idx === (state.plane === "AXIAL" ? 2 : 0) || poly.length > 100;
+    const isOuter =
+      (state.plane === "SAGITTAL" && idx === 0) ||
+      (state.plane === "AXIAL" && poly.length > 100) ||
+      idx === 0;
     ctx.strokeStyle = isOuter
-      ? "rgba(255,255,255,0.72)"
+      ? "rgba(255,255,255,0.78)"
       : idx < 5
-        ? "rgba(255,255,255,0.38)"
-        : "rgba(255,255,255,0.18)";
-    ctx.lineWidth = isOuter ? 1.1 : 0.7;
+        ? "rgba(255,255,255,0.4)"
+        : "rgba(255,255,255,0.2)";
+    ctx.lineWidth = isOuter ? 1.15 : 0.7;
     ctx.beginPath();
     poly.forEach(([nx, ny], i) => {
       const x = cx + nx * scale;
@@ -448,7 +493,7 @@ function drawCortex(time) {
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
-    if (poly.length > 40) ctx.closePath();
+    if (state.plane === "SAGITTAL" ? idx < 4 : poly.length > 40) ctx.closePath();
     ctx.stroke();
   });
 
