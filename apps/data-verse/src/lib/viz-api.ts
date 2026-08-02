@@ -1,4 +1,4 @@
-/** Client for mcp-server viz projection API with fixture fallback. */
+/** Client for viz API — same-origin /api/viz on Railway; fixtures offline. */
 import type {
   VizDensity,
   VizLedger,
@@ -9,14 +9,23 @@ import type {
 } from "@cortex/viz-contracts";
 import { fixtureDensity, fixtureLedger } from "./fixtures";
 
-function apiBase(): string {
-  return (import.meta.env.VITE_VIZ_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
-}
-
 function useFixtures(): boolean {
   if (import.meta.env.VITE_VIZ_FIXTURES === "1") return true;
-  if (import.meta.env.VITE_VIZ_FIXTURES === "0") return false;
-  return !apiBase();
+  // Explicit remote (dev against local MCP) still supported
+  if (import.meta.env.VITE_VIZ_API_URL) return false;
+  // Production Railway serves /api/viz proxy — never force fixtures
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
+    return false;
+  }
+  // Local vite without proxy → fixtures unless VITE_VIZ_API_URL set
+  return import.meta.env.DEV && !import.meta.env.VITE_VIZ_API_URL;
+}
+
+function apiPrefix(): string {
+  const remote = (import.meta.env.VITE_VIZ_API_URL as string | undefined)?.replace(/\/$/, "");
+  if (remote) return remote;
+  // same-origin proxy (Railway server.mjs)
+  return "";
 }
 
 function bearer(): string {
@@ -24,10 +33,12 @@ function bearer(): string {
 }
 
 async function vizFetch<T>(path: string, init?: RequestInit): Promise<T | null> {
-  const base = apiBase();
-  if (!base) return null;
+  const base = apiPrefix();
+  const url = base
+    ? `${base}${path}`
+    : `/api/viz${path.replace(/^\/v1\/viz/, "")}`;
   const token = bearer();
-  const res = await fetch(`${base}${path}`, {
+  const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -72,6 +83,13 @@ export async function postVerdict(
     method: "POST",
     body: JSON.stringify(body),
   });
-  if (!data) return { ok: false, insightId: body.insightId, verdict: body.verdict, error: "request_failed" };
+  if (!data) {
+    return {
+      ok: false,
+      insightId: body.insightId,
+      verdict: body.verdict,
+      error: "request_failed",
+    };
+  }
   return data;
 }
