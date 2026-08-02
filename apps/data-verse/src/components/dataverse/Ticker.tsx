@@ -1,7 +1,8 @@
-import { tickerSamples } from "@/lib/dataverse-data";
+﻿import { tickerSamples } from "@/lib/dataverse-data";
 
-export function Ticker() {
-  const stream = [...tickerSamples, ...tickerSamples];
+export function Ticker({ lines }: { lines?: string[] }) {
+  const base = lines && lines.length > 0 ? lines : tickerSamples;
+  const stream = [...base, ...base];
   return (
     <footer className="relative overflow-hidden border-t border-dv-line">
       <div

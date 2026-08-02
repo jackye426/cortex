@@ -121,6 +121,24 @@ export interface VizSlice {
   pointIndexes?: number[];
 }
 
+/** Visual density budgets — client shells own geometry at these counts. */
+export const DENSITY_BUDGETS = {
+  scan: { points: 9000, slices: 32, annotations: 6 },
+  particle: { points: 5200, orbits: 22, labels: 26 },
+  cross: { nodes: 4600, channels: 8 },
+  text: { rows: 180, cols: 900 },
+} as const;
+
+export interface VizDensityMeta {
+  /** Client generative shells own geometry; API supplies semantic overlays. */
+  shellDriven?: boolean;
+  source?: "live" | "fixture" | "degraded";
+  degraded?: boolean;
+  empty?: boolean;
+  error?: string;
+  [key: string]: unknown;
+}
+
 export interface VizDensity {
   view: VizView;
   generatedAt: string;
@@ -133,7 +151,7 @@ export interface VizDensity {
   meters?: VizMeter[];
   channelBars?: VizChannelBar[];
   slices?: VizSlice[];
-  meta?: Record<string, unknown>;
+  meta?: VizDensityMeta;
 }
 
 export interface VizLedgerControls {
@@ -258,7 +276,13 @@ export function emptyDensity(view: VizView): VizDensity {
     meters: [],
     channelBars: [],
     slices: [],
-    meta: { empty: true },
+    meta: {
+      empty: true,
+      shellDriven: true,
+      source: "degraded",
+      degraded: true,
+      budget: DENSITY_BUDGETS[view],
+    },
   };
 }
 

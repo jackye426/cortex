@@ -3,16 +3,31 @@ import type { VizLedger, VizLedgerChannel } from "@cortex/viz-contracts";
 import { loadLedger } from "@/lib/viz-api";
 import { fixtureLedger } from "@/lib/fixtures";
 
-export function useLedger(channel: VizLedgerChannel): VizLedger {
-  const [data, setData] = useState<VizLedger>(() => fixtureLedger(channel));
+export type LedgerState = {
+  data: VizLedger;
+  degraded: boolean;
+  loading: boolean;
+};
+
+export function useLedger(channel: VizLedgerChannel): LedgerState {
+  const [state, setState] = useState<LedgerState>({
+    data: fixtureLedger(channel),
+    degraded: false,
+    loading: true,
+  });
+
   useEffect(() => {
     let cancelled = false;
-    void loadLedger(channel).then((d) => {
-      if (!cancelled) setData(d);
+    setState((s) => ({ ...s, loading: true }));
+    void loadLedger(channel).then((r) => {
+      if (!cancelled) {
+        setState({ data: r.data, degraded: r.degraded, loading: false });
+      }
     });
     return () => {
       cancelled = true;
     };
   }, [channel]);
-  return data;
+
+  return state;
 }

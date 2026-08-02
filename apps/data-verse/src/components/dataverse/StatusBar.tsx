@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { pad } from "@/lib/dataverse-data";
 
 export function StatusBar() {

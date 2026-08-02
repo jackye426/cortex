@@ -1,4 +1,4 @@
-import { seeded } from "./dataverse-data";
+﻿import { seeded } from "./dataverse-data";
 
 export type Vec3 = { x: number; y: number; z: number };
 export type BrainPoint = Vec3 & { s: number; a: number };
@@ -63,7 +63,7 @@ export function buildBrain(count = 9000): BrainPoint[] {
         if (Math.abs(z) < 0.05) continue;
       }
 
-      // a fraction of samples pushed inward → volumetric density
+      // a fraction of samples pushed inward ΓåÆ volumetric density
       const inward = rnd() < 0.2 ? 0.72 + rnd() * 0.24 : 1;
       const lam = opts.lamellae ? 0.35 + 0.65 * Math.abs(Math.sin(y * 46)) : 1;
 

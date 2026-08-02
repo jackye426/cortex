@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+﻿import type { ReactNode } from "react";
 import { StatusBar } from "./StatusBar";
 import { ModeNav } from "./ModeNav";
 import { Ticker } from "./Ticker";

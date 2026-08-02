@@ -1,28 +1,37 @@
-import type { VizDensity } from "@cortex/viz-contracts";
+﻿import { useMemo } from "react";
+import { brainCloud } from "@/lib/dataverse-brain";
 import { useDataCanvas } from "@/lib/dataverse-canvas";
-import { pad } from "@/lib/fixtures";
+import { pad } from "@/lib/dataverse-data";
 
-type Props = { density?: VizDensity; cols?: number; rows?: number };
+type Slice = { pos: number; pts: Array<[number, number]> };
 
-export function ScanSlices({ density, cols = 8, rows = 4 }: Props) {
-  const points = density?.points ?? [];
-  const sliceDefs =
-    density?.slices?.length && density.slices.length >= cols * rows
-      ? density.slices.slice(0, cols * rows)
-      : Array.from({ length: cols * rows }, (_, i) => ({
-          pos: 1.15 - (i / Math.max(1, cols * rows - 1)) * 2.3,
-        }));
+function buildSlices(n: number): Slice[] {
+  const cloud = brainCloud(9000);
+  const out: Slice[] = [];
+  for (let i = 0; i < n; i++) {
+    const pos = 1.15 - (i / (n - 1)) * 2.3;
+    const pts: Array<[number, number]> = [];
+    for (const p of cloud) {
+      if (Math.abs(p.x - pos) < 0.075) pts.push([p.z, p.y]);
+    }
+    out.push({ pos, pts });
+  }
+  return out;
+}
+
+export function ScanSlices({ cols = 8, rows = 4 }: { cols?: number; rows?: number }) {
+  const slices = useMemo(() => buildSlices(cols * rows), [cols, rows]);
 
   const { wrapRef, canvasRef } = useDataCanvas(({ ctx, w, h, t, fg }) => {
     const cw = w / cols;
     const ch = h / rows;
-    const active = Math.floor(t * 2) % sliceDefs.length;
+    const active = Math.floor(t * 2) % slices.length;
 
     ctx.strokeStyle = fg;
     ctx.fillStyle = fg;
     ctx.lineWidth = 1;
 
-    sliceDefs.forEach((s, i) => {
+    slices.forEach((s, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
       const x0 = col * cw;
@@ -31,16 +40,14 @@ export function ScanSlices({ density, cols = 8, rows = 4 }: Props) {
       const cy = y0 + ch / 2;
       const scale = Math.min(cw, ch) * 0.32;
       const isActive = i === active;
-      const slab = 0.075;
 
       ctx.globalAlpha = isActive ? 0.3 : 0.09;
       ctx.strokeRect(x0 + 0.5, y0 + 0.5, cw - 1, ch - 1);
 
       ctx.globalAlpha = isActive ? 1 : 0.55;
-      for (const p of points) {
-        if (Math.abs(p.x - s.pos) < slab) {
-          ctx.fillRect(cx + p.z * scale, cy - p.y * scale, 1, 1);
-        }
+      for (let k = 0; k < s.pts.length; k++) {
+        const pt = s.pts[k]!;
+        ctx.fillRect(cx + pt[0] * scale, cy - pt[1] * scale, 1, 1);
       }
 
       ctx.globalAlpha = isActive ? 0.9 : 0.35;

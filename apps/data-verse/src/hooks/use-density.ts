@@ -3,16 +3,34 @@ import type { VizDensity, VizView } from "@cortex/viz-contracts";
 import { loadDensity } from "@/lib/viz-api";
 import { fixtureDensity } from "@/lib/fixtures";
 
-export function useDensity(view: VizView): VizDensity {
-  const [data, setData] = useState<VizDensity>(() => fixtureDensity(view));
+export type DensityState = {
+  data: VizDensity;
+  degraded: boolean;
+  loading: boolean;
+};
+
+export function useDensity(view: VizView): DensityState {
+  const [state, setState] = useState<DensityState>({
+    data: {
+      ...fixtureDensity(view),
+      meta: { ...fixtureDensity(view).meta, shellDriven: true, source: "fixture" },
+    },
+    degraded: false,
+    loading: true,
+  });
+
   useEffect(() => {
     let cancelled = false;
-    void loadDensity(view).then((d) => {
-      if (!cancelled) setData(d);
+    setState((s) => ({ ...s, loading: true }));
+    void loadDensity(view).then((r) => {
+      if (!cancelled) {
+        setState({ data: r.data, degraded: r.degraded, loading: false });
+      }
     });
     return () => {
       cancelled = true;
     };
   }, [view]);
-  return data;
+
+  return state;
 }

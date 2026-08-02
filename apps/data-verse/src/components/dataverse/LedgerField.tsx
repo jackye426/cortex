@@ -5,6 +5,8 @@ import { postVerdict } from "@/lib/viz-api";
 import { IndexColumn } from "./IndexColumn";
 import { ReadoutColumn } from "./ReadoutColumn";
 import { PrimaryField } from "./PrimaryField";
+import { SourceStrip } from "./SourceStrip";
+import { NumericMatrix } from "./NumericMatrix";
 
 const CHANNELS: Array<{ id: VizLedgerChannel; label: string }> = [
   { id: "mirror", label: "MIRROR" },
@@ -184,15 +186,19 @@ function Meter({ label, value }: { label: string; value: number }) {
         <span>{value.toFixed(4)}</span>
       </div>
       <div className="mt-1 h-[3px] w-full bg-dv-hair">
-        <div className="h-full bg-dv-fg" style={{ width: `${Math.min(1, Math.max(0, value)) * 100}%` }} />
+        <div
+          className="h-full bg-dv-fg"
+          style={{ width: `${Math.min(1, Math.max(0, value)) * 100}%` }}
+        />
       </div>
     </div>
   );
 }
 
+/** Index 05 — dense Ikeda instrument (readable + instrument panels). */
 export function LedgerField() {
   const [channel, setChannel] = useState<VizLedgerChannel>("mirror");
-  const ledger = useLedger(channel);
+  const { data: ledger, degraded } = useLedger(channel);
   const [activeId, setActiveId] = useState<string | undefined>(undefined);
 
   const rows = ledger.rows;
@@ -214,42 +220,50 @@ export function LedgerField() {
   }));
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)_220px]">
-      <div className="flex min-h-0 flex-col border-r border-dv-line">
-        <div className="dv-micro flex flex-wrap border-b border-dv-hair text-dv-faint">
-          {CHANNELS.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => {
-                setChannel(c.id);
-                setActiveId(undefined);
-              }}
-              className={`border-r border-dv-hair px-2 py-2 ${
-                channel === c.id ? "bg-dv-fg text-dv-bg" : "hover:text-dv-fg"
-              }`}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-        <IndexColumn
-          title={`LEDGER / ${channel.toUpperCase()}`}
-          meters={indexMeters}
-          activeId={selected?.id}
-          onSelect={setActiveId}
-        />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <SourceStrip source={degraded ? "DEGRADED" : "LIVE"} degraded={degraded} />
+      <div className="dv-micro border-b border-dv-hair px-3 py-1 tabular-nums text-dv-faint">
+        {(ledger.ticker ?? [`LEDGER/${channel.toUpperCase()}`]).join(" · ")}
       </div>
-
-      <div className="grid min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <div className="min-h-0 border-b border-dv-hair">
-          <PrimaryField swarm={swarm} label={`FIELD / ${channel.toUpperCase()}`} />
+      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)_220px]">
+        <div className="flex min-h-0 flex-col border-r border-dv-line">
+          <div className="dv-micro flex flex-wrap border-b border-dv-hair text-dv-faint">
+            {CHANNELS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  setChannel(c.id);
+                  setActiveId(undefined);
+                }}
+                className={`border-r border-dv-hair px-2 py-2 ${
+                  channel === c.id ? "bg-dv-fg text-dv-bg" : "hover:text-dv-fg"
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <IndexColumn
+            title={`LEDGER / ${channel.toUpperCase()}`}
+            meters={indexMeters}
+            activeId={selected?.id}
+            onSelect={setActiveId}
+          />
+          <NumericMatrix title="MATRIX / LEDGER" seed={4401} rows={6} />
         </div>
-        <DetailPane row={selected} />
-      </div>
 
-      <div className="hidden min-h-0 border-l border-dv-line md:block">
-        <ReadoutColumn meters={ledger.meters} title="METRICS / VIR" />
+        <div className="grid min-h-0 grid-rows-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <div className="min-h-0 border-b border-dv-hair">
+            <PrimaryField swarm={swarm} label={`FIELD / ${channel.toUpperCase()}`} />
+          </div>
+          <DetailPane row={selected} />
+        </div>
+
+        <div className="hidden min-h-0 flex-col border-l border-dv-line md:flex">
+          <ReadoutColumn meters={ledger.meters} title="METRICS / VIR" />
+          <NumericMatrix title="MATRIX / VIR" seed={9902} rows={8} />
+        </div>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+﻿import { useEffect, useRef } from "react";
 
 export type DrawCtx = {
   ctx: CanvasRenderingContext2D;

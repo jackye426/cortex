@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { pad } from "@/lib/fixtures";
+﻿import { useRef, useState } from "react";
+import { swarm as defaultSwarm, pad } from "@/lib/dataverse-data";
 
 type SwarmPoint = { x: number; y: number; r: number };
 
@@ -11,9 +11,10 @@ type Props = {
 };
 
 export function PrimaryField({
-  swarm = [],
+  swarm,
   label = "FIELD 01 / PROJECTION ORTHO",
 }: Props) {
+  const points = swarm && swarm.length > 0 ? swarm : defaultSwarm;
   const ref = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
@@ -56,7 +57,7 @@ export function PrimaryField({
             />
           </g>
         ))}
-        {swarm.map((p, i) => (
+        {points.map((p, i) => (
           <circle
             key={i}
             cx={p.x * 1000}
@@ -103,7 +104,7 @@ export function PrimaryField({
 
       <div className="dv-micro pointer-events-none absolute right-3 top-2 text-right text-dv-faint">
         <div>{label}</div>
-        <div>N {pad(swarm.length, 4)} SAMPLES</div>
+        <div>N {pad(points.length, 4)} SAMPLES</div>
       </div>
     </section>
   );

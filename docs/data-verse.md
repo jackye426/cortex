@@ -35,7 +35,11 @@ Uses TanStack server functions + Lovable secrets. Prefer Railway unless you want
 
 **Density vs ledger:** indexes 01–04 accept only `VizDensity` (atmosphere). Index 05 accepts only `VizLedger` (InsightCards, open questions, self-model, interests, priority-vs-actual, diffs, VIR meters).
 
+**Shell-driven geometry:** client canvases keep the original Ikeda generative budgets (`DENSITY_BUDGETS`: brain 9k pts, particle 5.2k/22 orbits, cross 4.6k nodes, text 180×900). The API supplies **semantic overlays** (annotations, meters, channel bars, stream seeds) with `meta.shellDriven=true`. Failed live fetches mark `meta.degraded` / `source=degraded` — no silent fixture swap in production.
+
 Shared contracts: [`packages/viz-contracts`](../packages/viz-contracts).
+
+Visual golden baseline (pre-Cortex wiring): `data-verse-render` commit `f98f902`.
 
 ## Run locally (fixtures)
 

@@ -2,6 +2,7 @@
  * Build VizDensity payloads for scan | particle | cross | text.
  */
 import {
+  DENSITY_BUDGETS,
   emptyDensity,
   VIZ_SOURCE_FAMILIES,
   type SelfFacet,
@@ -46,10 +47,26 @@ export async function buildVizDensity(
     const empty = emptyDensity(view);
     empty.meta = {
       empty: true,
+      shellDriven: true,
+      source: "degraded",
+      degraded: true,
       error: err instanceof Error ? err.message : String(err),
+      budget: DENSITY_BUDGETS[view],
     };
     return empty;
   }
+}
+
+function shellMeta(
+  view: VizView,
+  extra: Record<string, unknown> = {},
+): VizDensity["meta"] {
+  return {
+    shellDriven: true,
+    source: "live",
+    budget: DENSITY_BUDGETS[view],
+    ...extra,
+  };
 }
 
 async function buildScan(store: CortexStore): Promise<VizDensity> {
@@ -123,22 +140,38 @@ async function buildScan(store: CortexStore): Promise<VizDensity> {
     .sort((a, b) => b.confidence - a.confidence)
     .slice(0, 8);
 
-  const annotations = hotHyps.map((h, i) => {
-    const facet: SelfFacet =
-      h.domains.includes("tension") || h.domains.includes("avoidance")
-        ? "tensions"
-        : h.domains.includes("motive")
-          ? "motives"
-          : "identity";
+  const annotations: Array<{ id: string; label: string; x: number; y: number; z: number }> =
+    hotHyps.map((h, i) => {
+      const facet: SelfFacet =
+        h.domains.includes("tension") || h.domains.includes("avoidance")
+          ? "tensions"
+          : h.domains.includes("motive")
+            ? "motives"
+            : "identity";
+      const c = FACET_CENTERS[facet];
+      return {
+        id: `N${String(i + 1).padStart(2, "0")}`,
+        label: h.claim.slice(0, 24),
+        x: c.x,
+        y: c.y,
+        z: c.z,
+      };
+    });
+  // Pad to anatomical annotation budget so client overlays stay dense
+  while (annotations.length < DENSITY_BUDGETS.scan.annotations) {
+    const i = annotations.length;
+    const facet = (["strengths", "limitations", "motives", "tensions", "identity"] as SelfFacet[])[
+      i % 5
+    ]!;
     const c = FACET_CENTERS[facet];
-    return {
+    annotations.push({
       id: `N${String(i + 1).padStart(2, "0")}`,
-      label: h.claim.slice(0, 24),
+      label: facet.toUpperCase().slice(0, 24),
       x: c.x,
       y: c.y,
       z: c.z,
-    };
-  });
+    });
+  }
 
   const energy = affect.filter((a) => a.signalType === "energy");
   const valence = affect.filter((a) => a.signalType === "valence");
@@ -173,10 +206,11 @@ async function buildScan(store: CortexStore): Promise<VizDensity> {
       { id: "06", label: "HYPS", value: Math.min(1, hyps.length / 40) },
     ],
     slices,
-    meta: {
-      empty: points.length === 0,
+    meta: shellMeta("scan", {
+      empty: points.length === 0 && annotations.length === 0,
       selfModelVersion: selfModel?.version ?? null,
-    },
+      overlayAnnotations: annotations.length,
+    }),
   };
 }
 
@@ -222,16 +256,33 @@ async function buildParticle(store: CortexStore): Promise<VizDensity> {
     value: Math.min(1, row.pct ?? row.hours / 40),
   }));
 
+  // Expand floating labels to shell budget from projects + distillate tags
+  const labelPool = [
+    ...meters.map((m) => m.label),
+    ...annotations.map((a) => a.label),
+    ...points.map((p) => p.label).filter((x): x is string => Boolean(x)),
+  ];
+  if (labelPool.length > 0) {
+    const rndL = seeded(66123);
+    annotations = Array.from({ length: DENSITY_BUDGETS.particle.labels }, (_, i) => ({
+      id: `L${String(i + 1).padStart(2, "0")}`,
+      label: (labelPool[i % labelPool.length] ?? "CORTEX").slice(0, 12).toUpperCase(),
+      x: (rndL() - 0.5) * 2.4,
+      y: (rndL() - 0.5) * 1.6,
+      z: (rndL() - 0.5) * 2.4,
+    }));
+  }
+
   if (!orbits.length) {
     const rnd = seeded(66);
-    orbits = Array.from({ length: 4 }, (_, i) => ({
+    orbits = Array.from({ length: DENSITY_BUDGETS.particle.orbits }, (_, i) => ({
       tilt: rnd() * Math.PI,
       yaw: rnd() * Math.PI * 2,
-      r: 1 + rnd(),
-      ecc: 0.5,
-      accent: i === 0,
+      r: 0.9 + rnd() * 1.8,
+      ecc: 0.35 + rnd() * 0.6,
+      accent: i === 3 || i === 11,
       id: `o${i}`,
-      label: "ORBIT",
+      label: meters[i % Math.max(1, meters.length)]?.label ?? "ORBIT",
     }));
   }
 
@@ -245,11 +296,12 @@ async function buildParticle(store: CortexStore): Promise<VizDensity> {
       meters.length > 0
         ? meters
         : [{ id: "01", label: "PTS", value: Math.min(1, points.length / POINT_CAP) }],
-    meta: {
-      empty: points.length === 0,
+    meta: shellMeta("particle", {
+      empty: points.length === 0 && annotations.length === 0,
       fromSnapshot: Boolean(snap),
       pointCap: POINT_CAP,
-    },
+      overlayLabels: annotations.length,
+    }),
   };
 }
 
@@ -392,7 +444,11 @@ async function buildCross(store: CortexStore): Promise<VizDensity> {
       { id: "03", label: "REFL", value: coverage.reflectiveShare },
       { id: "04", label: "OPS", value: coverage.operationalShare },
     ],
-    meta: { empty: points.length === 0, entityCount: entities.length },
+    meta: shellMeta("cross", {
+      empty: points.length === 0 && channelBars.length === 0,
+      entityCount: entities.length,
+      overlayChannels: channelBars.length,
+    }),
   };
 }
 
@@ -421,39 +477,42 @@ async function buildText(store: CortexStore): Promise<VizDensity> {
   }
 
   const rnd = seeded(778811);
+  const rowBudget = DENSITY_BUDGETS.text.rows;
   const streamRows: import("@cortex/viz-contracts").VizStreamRow[] = Array.from(
-    { length: Math.max(40, texts.length * 3) },
+    { length: rowBudget },
     (_, r) => {
-    const src = texts[r % Math.max(1, texts.length)] ?? {
-      text: "CORTEX THROUGHPUT EMPTY",
-      kind: "other" as const,
-    };
-    const raw = (src.text || "EMPTY").toUpperCase().replace(/[^A-Z0-9]+/g, "");
-    let text = "";
-    while (text.length < 200) {
-      text += raw.slice(0, 8 + Math.floor(rnd() * 16)) + " ";
-      if (rnd() < 0.25) text += Math.floor(rnd() * 65535).toString(16).toUpperCase() + " ";
-    }
-    text = text.slice(0, 200);
-    const invert: Array<[number, number]> = [];
-    if (src.kind === "session" || rnd() < 0.35) {
-      const a = Math.floor(rnd() * 150);
-      invert.push([a, a + 10 + Math.floor(rnd() * 20)]);
-    }
-    const kind =
-      src.kind === "session" || src.kind === "observation" || src.kind === "digest"
-        ? src.kind
-        : "other";
-    return {
-      text,
-      speed: (rnd() < 0.5 ? -1 : 1) * (14 + rnd() * 100),
-      phase: rnd() * 200,
-      alpha: 0.25 + rnd() * 0.7,
-      invert,
-      accent: rnd() > 0.97,
-      kind,
-    };
-  },
+      const src = texts[r % Math.max(1, texts.length)] ?? {
+        text: "CORTEX THROUGHPUT EMPTY",
+        kind: "other" as const,
+      };
+      const raw = (src.text || "EMPTY").toUpperCase().replace(/[^A-Z0-9]+/g, "");
+      let text = "";
+      while (text.length < 200) {
+        text += raw.slice(0, 8 + Math.floor(rnd() * 16)) + " ";
+        if (rnd() < 0.25) {
+          text += Math.floor(rnd() * 65535).toString(16).toUpperCase() + " ";
+        }
+      }
+      text = text.slice(0, 200);
+      const invert: Array<[number, number]> = [];
+      if (src.kind === "session" || rnd() < 0.35) {
+        const a = Math.floor(rnd() * 150);
+        invert.push([a, a + 10 + Math.floor(rnd() * 20)]);
+      }
+      const kind =
+        src.kind === "session" || src.kind === "observation" || src.kind === "digest"
+          ? src.kind
+          : "other";
+      return {
+        text,
+        speed: (rnd() < 0.5 ? -1 : 1) * (14 + rnd() * 100),
+        phase: rnd() * 200,
+        alpha: 0.25 + rnd() * 0.7,
+        invert,
+        accent: rnd() > 0.97,
+        kind,
+      };
+    },
   );
 
   return {
@@ -466,6 +525,9 @@ async function buildText(store: CortexStore): Promise<VizDensity> {
       { id: "02", label: "OBS", value: Math.min(1, observations.length / 40) },
       { id: "03", label: "DIGEST", value: Math.min(1, distillates.length / 40) },
     ],
-    meta: { empty: texts.length === 0 },
+    meta: shellMeta("text", {
+      empty: texts.length === 0,
+      overlaySeeds: texts.length,
+    }),
   };
 }
