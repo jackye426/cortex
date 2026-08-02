@@ -51,6 +51,16 @@ import {
   buildVizProjectionSnapshot,
 } from "./viz/index.js";
 import type { VizLedgerChannel, VizView } from "@cortex/viz-contracts";
+import {
+  createWebSession,
+  expiredSessionCookie,
+  isAllowedWebOrigin,
+  resolveAllowedWebOrigins,
+  resolveWebAuthConfig,
+  sessionCookie,
+  verifyWebPassword,
+  webSessionFromCookie,
+} from "./web-auth.js";
 loadDotEnv();
 
 const vaultStore = createStore("vault");
@@ -85,22 +95,183 @@ function createServer(
 }
 
 const app = new Hono();
+const webOrigins = resolveAllowedWebOrigins();
 
 app.use(
   "*",
   cors({
-    origin: "*",
+    origin: (origin) => (isAllowedWebOrigin(origin, webOrigins) ? origin : ""),
     allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowHeaders: [
       "Authorization",
       "Content-Type",
+      "X-Cortex-CSRF",
       "mcp-session-id",
       "Last-Event-ID",
       "mcp-protocol-version",
     ],
     exposeHeaders: ["mcp-session-id", "mcp-protocol-version"],
+    credentials: true,
   }),
 );
+
+app.use("/v1/viz/*", async (c, next) => {
+  c.header("Cache-Control", "no-store");
+  c.header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  c.header("Referrer-Policy", "no-referrer");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("X-Frame-Options", "DENY");
+  if (process.env.NODE_ENV === "production") {
+    c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  await next();
+});
+
+app.use("/v1/web-auth/*", async (c, next) => {
+  c.header("Cache-Control", "no-store");
+  c.header("Referrer-Policy", "no-referrer");
+  c.header("X-Content-Type-Options", "nosniff");
+  if (process.env.NODE_ENV === "production") {
+    c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  await next();
+});
+
+type PrivateVizAccess =
+  | { ok: true; auditToken: string }
+  | { ok: false; response: Response };
+
+function authorizePrivateViz(
+  c: Context,
+  options: { mutation?: boolean } = {},
+): PrivateVizAccess {
+  const serviceToken = resolveMcpToken();
+  if (requireBearer(c.req.header("authorization"), serviceToken)) {
+    return { ok: true, auditToken: serviceToken! };
+  }
+
+  const config = resolveWebAuthConfig();
+  const session = config
+    ? webSessionFromCookie(c.req.header("cookie"), config)
+    : null;
+  if (!session) {
+    return { ok: false, response: c.json({ error: "unauthorized" }, 401) };
+  }
+  if (
+    options.mutation &&
+    (!isAllowedWebOrigin(c.req.header("origin"), config!.allowedOrigins) ||
+      c.req.header("x-cortex-csrf") !== "1")
+  ) {
+    return { ok: false, response: c.json({ error: "csrf_rejected" }, 403) };
+  }
+  return {
+    ok: true,
+    auditToken: `web:${session.sub}:${session.iat}:${session.nonce}`,
+  };
+}
+
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 5;
+
+function requestIp(c: Context): string {
+  const forwarded = c.req.header("x-forwarded-for")
+    ?.split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return (
+    c.req.header("cf-connecting-ip")?.trim() ||
+    c.req.header("x-real-ip")?.trim() ||
+    forwarded?.at(-1) ||
+    "unknown"
+  );
+}
+
+function loginRateLimit(c: Context): { allowed: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const key = requestIp(c);
+  const current = loginAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    if (loginAttempts.size >= 10_000) {
+      for (const [candidate, value] of loginAttempts) {
+        if (value.resetAt <= now) loginAttempts.delete(candidate);
+      }
+      if (loginAttempts.size >= 10_000) loginAttempts.clear();
+    }
+    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return { allowed: true };
+  }
+  if (current.count >= LOGIN_MAX_ATTEMPTS) {
+    return {
+      allowed: false,
+      retryAfter: Math.max(1, Math.ceil((current.resetAt - now) / 1000)),
+    };
+  }
+  current.count += 1;
+  return { allowed: true };
+}
+
+app.post("/v1/web-auth/login", async (c) => {
+  const config = resolveWebAuthConfig();
+  if (!config) {
+    return c.json({ error: "web_auth_unavailable" }, 503);
+  }
+  if (!isAllowedWebOrigin(c.req.header("origin"), config.allowedOrigins)) {
+    return c.json({ error: "origin_rejected" }, 403);
+  }
+  const rate = loginRateLimit(c);
+  if (!rate.allowed) {
+    c.header("Retry-After", String(rate.retryAfter));
+    return c.json({ error: "too_many_attempts" }, 429);
+  }
+  let password = "";
+  try {
+    const body = (await c.req.json()) as { password?: unknown };
+    password = typeof body.password === "string" ? body.password : "";
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  if (
+    password.length === 0 ||
+    password.length > 1024 ||
+    !verifyWebPassword(password, config.passwordHash)
+  ) {
+    return c.json({ error: "invalid_credentials" }, 401);
+  }
+  loginAttempts.delete(requestIp(c));
+  const created = createWebSession(config.sessionSecret, config.ttlSeconds);
+  c.header("Set-Cookie", sessionCookie(config, created.token));
+  return c.json({
+    ok: true,
+    user: created.session.sub,
+    expiresAt: new Date(created.session.exp * 1000).toISOString(),
+  });
+});
+
+app.get("/v1/web-auth/session", (c) => {
+  const config = resolveWebAuthConfig();
+  if (!config) return c.json({ authenticated: false }, 401);
+  if (!isAllowedWebOrigin(c.req.header("origin"), config.allowedOrigins)) {
+    return c.json({ authenticated: false }, 401);
+  }
+  const session = webSessionFromCookie(c.req.header("cookie"), config);
+  if (!session) return c.json({ authenticated: false }, 401);
+  return c.json({
+    authenticated: true,
+    user: session.sub,
+    expiresAt: new Date(session.exp * 1000).toISOString(),
+  });
+});
+
+app.post("/v1/web-auth/logout", (c) => {
+  const config = resolveWebAuthConfig();
+  if (!config) return c.json({ ok: true });
+  if (!isAllowedWebOrigin(c.req.header("origin"), config.allowedOrigins)) {
+    return c.json({ error: "origin_rejected" }, 403);
+  }
+  c.header("Set-Cookie", expiredSessionCookie(config));
+  return c.json({ ok: true });
+});
 
 app.get("/health", (c) =>
   c.json({
@@ -690,20 +861,12 @@ const VIZ_CHANNELS = new Set<VizLedgerChannel>([
 
 /** Density payloads for data-verse indexes 01–04. */
 app.get("/v1/viz/density", async (c) => {
-  const expected = resolveMcpToken();
-  if (!expected) {
-    return c.json(
-      { error: "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN" },
-      500,
-    );
-  }
-  if (!requireBearer(c.req.header("authorization"), expected)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
+  const auth = authorizePrivateViz(c);
+  if (!auth.ok) return auth.response;
   const viewRaw = (c.req.query("view") ?? "scan") as VizView;
   const view = VIZ_VIEWS.has(viewRaw) ? viewRaw : "scan";
   void logMcpAudit({
-    token: expected,
+    token: auth.auditToken,
     route: "/v1/viz/density",
     method: "GET",
     metadata: { view },
@@ -714,20 +877,12 @@ app.get("/v1/viz/density", async (c) => {
 
 /** Ledger payloads for data-verse index 05. */
 app.get("/v1/viz/ledger", async (c) => {
-  const expected = resolveMcpToken();
-  if (!expected) {
-    return c.json(
-      { error: "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN" },
-      500,
-    );
-  }
-  if (!requireBearer(c.req.header("authorization"), expected)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
+  const auth = authorizePrivateViz(c);
+  if (!auth.ok) return auth.response;
   const channelRaw = (c.req.query("channel") ?? "mirror") as VizLedgerChannel;
   const channel = VIZ_CHANNELS.has(channelRaw) ? channelRaw : "mirror";
   void logMcpAudit({
-    token: expected,
+    token: auth.auditToken,
     route: "/v1/viz/ledger",
     method: "GET",
     metadata: { channel },
@@ -738,16 +893,8 @@ app.get("/v1/viz/ledger", async (c) => {
 
 /** VIR confirm/reject/refine from ledger controls. */
 app.post("/v1/viz/verdict", async (c) => {
-  const expected = resolveMcpToken();
-  if (!expected) {
-    return c.json(
-      { error: "server misconfigured: set CORTEX_MCP_TOKEN or CORTEX_INGEST_TOKEN" },
-      500,
-    );
-  }
-  if (!requireBearer(c.req.header("authorization"), expected)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
+  const auth = authorizePrivateViz(c, { mutation: true });
+  if (!auth.ok) return auth.response;
   let body: {
     insightId?: string;
     verdict?: string;
@@ -769,7 +916,7 @@ app.post("/v1/viz/verdict", async (c) => {
     return c.json({ error: "invalid_verdict" }, 400);
   }
   void logMcpAudit({
-    token: expected,
+    token: auth.auditToken,
     route: "/v1/viz/verdict",
     method: "POST",
     metadata: { insightId: body.insightId, verdict: body.verdict },

@@ -27,6 +27,7 @@
     "dev:data-verse": "pnpm --filter @cortex/data-verse dev",
     "build:data-verse": "pnpm --filter @cortex/viz-contracts build && pnpm --filter @cortex/data-verse build",
     "start:data-verse": "pnpm --filter @cortex/data-verse start",
+    "web-auth:hash": "node scripts/hash-web-password.mjs",
     "test:mcp": "pnpm --filter @cortex/mcp-server test",
     "mirror": "pnpm --filter @cortex/openai-mirror start",
     "mirror:tools": "pnpm --filter @cortex/openai-mirror tools",
