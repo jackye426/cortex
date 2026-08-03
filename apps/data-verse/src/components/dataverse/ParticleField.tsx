@@ -66,7 +66,7 @@ function build(count: number, orbits: number, labelTexts?: string[]) {
       x: (rnd() - 0.5) * 2.4,
       y: (rnd() - 0.5) * 1.6,
       z: (rnd() - 0.5) * 2.4,
-      v: text ? text.slice(0, 18).toUpperCase() : hex(rnd() * 65535),
+      v: text ? text.slice(0, 34).toUpperCase() : hex(rnd() * 65535),
       n: pad(rnd() * 999, 3),
     };
   });
@@ -165,9 +165,9 @@ export function ParticleField({
             : (fastestPeriod / o.periodDays) * ((Math.PI * 2) / FASTEST_LAP_SECONDS);
         const angle = (o.phase ?? 0) * Math.PI * 2 + t * speed;
         const s = orbitAt(o, angle);
-        const size = Math.max(2.6, Math.min(5.4, 2.6 + Math.log1p(o.events ?? 1) * 0.9)) * s.p;
+        const size = Math.max(5, Math.min(11, 5 + Math.log1p(o.events ?? 1) * 1.6)) * s.p;
         ctx.fillStyle = o.accent ? accent : fg;
-        ctx.globalAlpha = Math.max(0.35, Math.min(1, 0.4 + (o.health ?? 0) * 0.6));
+        ctx.globalAlpha = Math.max(0.7, Math.min(1, 0.7 + (o.health ?? 0) * 0.3));
         ctx.beginPath();
         ctx.arc(s.sx, s.sy, size / 2, 0, Math.PI * 2);
         ctx.fill();
@@ -175,9 +175,9 @@ export function ParticleField({
         // "still orbiting" from "coasting" without reading the label.
         if (!o.stalled) {
           ctx.strokeStyle = o.accent ? accent : fg;
-          ctx.globalAlpha = 0.35;
+          ctx.globalAlpha = 0.6;
           ctx.beginPath();
-          ctx.arc(s.sx, s.sy, size / 2 + 3, 0, Math.PI * 2);
+          ctx.arc(s.sx, s.sy, size / 2 + 4, 0, Math.PI * 2);
           ctx.stroke();
         }
       }
@@ -198,8 +198,10 @@ export function ParticleField({
         const pt = dataPoints[i]!;
         const wob = 1 + Math.sin(t * 0.6 + i) * 0.015;
         const s = proj(pt.x * wob, pt.y * wob, pt.z * wob);
-        ctx.globalAlpha = Math.min(1, (pt.a ?? 0.6) * (0.35 + ((s.d + 1) / 2) * 0.75));
-        const size = (pt.s ?? 1) * 1.8 * s.p;
+        // Matched to index 01's bound-record weighting so a record reads the
+        // same in both instruments.
+        ctx.globalAlpha = Math.min(1, (pt.a ?? 0.6) * (0.55 + ((s.d + 1) / 2) * 0.8) * 1.25);
+        const size = (pt.s ?? 1) * 2.6 * s.p;
         ctx.fillRect(s.sx - size / 2, s.sy - size / 2, size, size);
       }
       ctx.globalAlpha = 1;
@@ -214,9 +216,9 @@ export function ParticleField({
       ctx.moveTo(s.sx, s.sy);
       ctx.lineTo(s.sx + 22, s.sy);
       ctx.stroke();
-      ctx.fillText(`${l.n} ${l.v}`, Math.min(w - 130, s.sx + 26), s.sy);
+      ctx.fillText(`${l.n} ${l.v}`, Math.min(w - 240, s.sx + 26), s.sy);
       if (i % 7 === 0) {
-        ctx.fillText(`${(s.d + 1.5).toFixed(4)}`, Math.min(w - 130, s.sx + 26), s.sy + 11);
+        ctx.fillText(`${(s.d + 1.5).toFixed(4)}`, Math.min(w - 240, s.sx + 26), s.sy + 11);
       }
     });
     ctx.globalAlpha = 1;

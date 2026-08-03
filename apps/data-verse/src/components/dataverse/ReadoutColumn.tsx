@@ -31,8 +31,12 @@ export function ReadoutColumn({ meters, title = "READOUT" }: Props) {
             return Math.min(1, Math.max(0, v + (Math.random() - 0.5) * 0.12));
           }
           const truth = base[i]?.value ?? v;
-          const noise = (Math.random() - 0.5) * 0.008;
-          return Math.min(1, Math.max(0, truth + noise));
+          // Reflect rather than clamp: a channel pinned at 0.000 or 1.000
+          // would otherwise sit dead still while every other one sampled.
+          let next = truth + (Math.random() - 0.5) * 0.03;
+          if (next < 0) next = -next;
+          if (next > 1) next = 2 - next;
+          return next;
         }),
       );
     }, 420);

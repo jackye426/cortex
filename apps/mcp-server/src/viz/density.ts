@@ -453,7 +453,7 @@ async function buildParticle(store: CortexStore): Promise<VizDensity> {
     { length: DENSITY_BUDGETS.particle.labels },
     (_, i) => ({
       id: `L${String(i + 1).padStart(2, "0")}`,
-      label: (labelPool[i % Math.max(1, labelPool.length)] ?? "CORTEX").slice(0, 22),
+      label: (labelPool[i % Math.max(1, labelPool.length)] ?? "CORTEX").slice(0, 34),
       x: (rndL() - 0.5) * 2.4,
       y: (rndL() - 0.5) * 1.6,
       z: (rndL() - 0.5) * 2.4,
