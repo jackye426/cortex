@@ -1,4 +1,4 @@
-﻿import { useMemo } from "react";
+import { useMemo } from "react";
 import { useDataCanvas } from "@/lib/dataverse-canvas";
 import { seeded } from "@/lib/dataverse-data";
 
@@ -65,11 +65,11 @@ export function TextStream({
   cols = 900,
   seedTexts,
 }: {
-  cols?: number;
-  bands?: number;
-  perBand?: number;
+  cols?: number | undefined;
+  bands?: number | undefined;
+  perBand?: number | undefined;
   /** Cortex throughput snippets woven into the glyph wall. */
-  seedTexts?: string[];
+  seedTexts?: string[] | undefined;
 }) {
   const rows = useMemo(() => build(180, cols, seedTexts), [cols, seedTexts]);
 

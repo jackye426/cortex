@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { DvFrame } from "@/components/dataverse/DvFrame";
 import { InsightField } from "@/components/dataverse/InsightField";

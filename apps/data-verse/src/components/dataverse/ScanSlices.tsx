@@ -1,4 +1,4 @@
-﻿import { useMemo } from "react";
+import { useMemo } from "react";
 import { brainCloud } from "@/lib/dataverse-brain";
 import { useDataCanvas } from "@/lib/dataverse-canvas";
 import { pad } from "@/lib/dataverse-data";

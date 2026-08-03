@@ -1,4 +1,4 @@
-﻿import { useMemo } from "react";
+import { useMemo } from "react";
 import { useDataCanvas } from "@/lib/dataverse-canvas";
 import { seeded, hex, pad } from "@/lib/dataverse-data";
 
@@ -46,10 +46,10 @@ export function ParticleField({
   orbits = 22,
   labelTexts,
 }: {
-  count?: number;
-  orbits?: number;
+  count?: number | undefined;
+  orbits?: number | undefined;
   /** Cortex project / distillate keys woven into floating annotations. */
-  labelTexts?: string[];
+  labelTexts?: string[] | undefined;
 }) {
   const { pts, orb, labels } = useMemo(
     () => build(count, orbits, labelTexts),

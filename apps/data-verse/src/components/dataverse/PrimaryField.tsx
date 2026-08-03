@@ -1,4 +1,4 @@
-﻿import { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { swarm as defaultSwarm, pad } from "@/lib/dataverse-data";
 
 type SwarmPoint = { x: number; y: number; r: number };

@@ -1,4 +1,4 @@
-﻿import type { VizMeter } from "@cortex/viz-contracts";
+import type { VizMeter } from "@cortex/viz-contracts";
 import { indexRows } from "@/lib/dataverse-data";
 
 type Props = {

@@ -133,7 +133,7 @@ export function fixtureParticle(): VizDensity {
 
 export function fixtureCross(): VizDensity {
   const rnd = seeded(313377);
-  const cores = VIZ_SOURCE_FAMILIES.slice(0, 8).map((label, i) => ({
+  const cores = VIZ_SOURCE_FAMILIES.slice(0, 8).map((label) => ({
     id: label,
     label,
     x: (rnd() - 0.5) * 1.7,

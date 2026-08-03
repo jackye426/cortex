@@ -1,4 +1,4 @@
-﻿import { tickerSamples } from "@/lib/dataverse-data";
+import { tickerSamples } from "@/lib/dataverse-data";
 
 export function Ticker({ lines }: { lines?: string[] }) {
   const base = lines && lines.length > 0 ? lines : tickerSamples;

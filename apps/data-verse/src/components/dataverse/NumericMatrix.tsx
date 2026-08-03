@@ -1,4 +1,4 @@
-﻿import { seeded, hex } from "@/lib/dataverse-data";
+import { seeded, hex } from "@/lib/dataverse-data";
 
 type Props = { title: string; rows?: number; cols?: number; seed?: number };
 

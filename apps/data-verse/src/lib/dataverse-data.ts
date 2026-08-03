@@ -1,4 +1,4 @@
-﻿// Deterministic pseudo-random source so SSR and hydration agree.
+// Deterministic pseudo-random source so SSR and hydration agree.
 export function seeded(seed: number) {
   let s = seed >>> 0;
   return () => {

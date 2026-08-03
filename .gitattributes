@@ -1,0 +1,11 @@
+# Normalize to LF in the repository; the working tree still follows core.autocrlf.
+# Without this, Windows checkouts produce phantom "modified" files with empty diffs.
+* text=auto
+
+*.png binary
+*.ico binary
+*.jpg binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.pdf binary

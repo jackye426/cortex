@@ -1,4 +1,4 @@
-﻿import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { DvFrame } from "@/components/dataverse/DvFrame";
 import { BrainField } from "@/components/dataverse/BrainField";
 import { ParticleField } from "@/components/dataverse/ParticleField";

@@ -1,10 +1,24 @@
 # Data-verse visualization
 
-Ikeda-style computational frontend for Cortex. The active migration moves the
-frontend source of truth to
-[`jackye426/data-verse-render`](https://github.com/jackye426/data-verse-render),
-edited and hosted by Lovable at the private `jackye.wiki` domain. Cortex remains
-the API, authentication, data, and projection backend.
+Ikeda-style computational frontend for Cortex.
+
+**Frontend source of truth:
+[`jackye426/data-verse-render`](https://github.com/jackye426/data-verse-render)** — edited and hosted
+by Lovable at the private `jackye.wiki` domain. All UI work happens there. Cortex is the API,
+authentication, data, and projection backend, and owns the shared contracts.
+
+`apps/data-verse` in this repo is the **rollback copy**: the same UI as a Vite SPA behind a
+server-side bearer proxy, deployed to Railway. Keep it building; do not author new UI here.
+
+| Copy | Repo / path | Stack | Auth | Role |
+|------|-------------|-------|------|------|
+| Private dashboard | `jackye426/data-verse-render` (local clone `../data-verse-render-backup`) | TanStack Start + Lovable | Cookie session via `/v1/web-auth/*` | **Primary** |
+| Rollback dashboard | `apps/data-verse` | Vite SPA | `server.mjs` injects the bearer server-side | Fallback only |
+| Visual baseline | `../data-verse-f98-baseline` (worktree at `f98f902`) | — | — | Pre-Cortex reference |
+
+The two copies share the same shells, routes, and styles byte-for-byte; they differ only in the
+transport layer (`src/lib/viz-api.ts`) and how contracts are imported. Private auth spans matching
+`codex/private-jackye-wiki-auth` branches in both repos.
 
 ## Private jackye.wiki architecture
 
@@ -36,11 +50,11 @@ Authentication endpoints:
 Private visualization responses use `Cache-Control: no-store`. Cookie-authenticated
 verdict writes also require an allowed `Origin` and `X-Cortex-CSRF: 1`.
 
-## Live personal dashboard (Railway — preferred)
+## Rollback dashboard (Railway)
 
 **URL:** https://cortexdata-verse-production.up.railway.app
 
-Railway service `@cortex/data-verse` serves the Vite build via `server.mjs`, which proxies **`/api/viz/*`** to the MCP viz API. Your bearer token stays on the server (`CORTEX_MCP_TOKEN` on the data-verse service), not in the browser.
+Railway service `@cortex/data-verse` serves the Vite build via `server.mjs`, which proxies **`/api/viz/*`** to the MCP viz API. Your bearer token stays on the server (`CORTEX_MCP_TOKEN` on the data-verse service), not in the browser. This copy has **no login**; it is reachable by anyone with the URL, which is why the private domain is the primary path.
 
 | Railway variable | Purpose |
 |------------------|---------|
@@ -50,14 +64,14 @@ Railway service `@cortex/data-verse` serves the Vite build via `server.mjs`, whi
 
 Build/deploy: push to `jackye426/cortex` `main`; Railway builds from the Dockerfile at repo root context.
 
-## Lovable frontend
+## Lovable frontend (primary)
 
-[jackye426/data-verse-render](https://github.com/jackye426/data-verse-render) → https://data-verse-render.lovable.app
+[jackye426/data-verse-render](https://github.com/jackye426/data-verse-render) → https://jackye.wiki
+(preview: https://data-verse-render.lovable.app)
 
-The migration removes the server-side MCP bearer proxy. The browser calls Cortex
-with `credentials: include`; only `VITE_CORTEX_API_URL` is configured in Lovable.
-The old Railway frontend stays available only as rollback until the private-domain
-smoke test passes.
+There is no server-side MCP bearer proxy: the browser calls Cortex with `credentials: "include"`,
+and only `VITE_CORTEX_API_URL` is configured in Lovable. Auth helpers live in `src/lib/cortex-auth.ts`
+(login/session/logout + a `cortex-auth-expired` event), with the login gate in `src/routes/__root.tsx`.
 
 ## Indexes
 
@@ -74,7 +88,21 @@ smoke test passes.
 
 **Shell-driven geometry:** client canvases keep the original Ikeda generative budgets (`DENSITY_BUDGETS`: brain 9k pts, particle 5.2k/22 orbits, cross 4.6k nodes, text 180×900). The API supplies **semantic overlays** (annotations, meters, channel bars, stream seeds) with `meta.shellDriven=true`. Failed live fetches mark `meta.degraded` / `source=degraded` — no silent fixture swap in production.
 
-Shared contracts: [`packages/viz-contracts`](../packages/viz-contracts).
+## Shared contracts
+
+[`packages/viz-contracts`](../packages/viz-contracts) is the only source of truth for `VizDensity`,
+`VizLedger`, `VizVerdict*` and `DENSITY_BUDGETS`. `apps/data-verse` imports it as a workspace
+dependency; `data-verse-render` cannot, so it carries a **generated** copy at
+`src/lib/viz-contracts.ts`. Regenerate it after any contract change instead of hand-editing:
+
+```powershell
+node scripts/sync-viz-contracts.mjs --check           # CI-style drift check
+node scripts/sync-viz-contracts.mjs                   # write ../data-verse-render/src/lib/viz-contracts.ts
+node scripts/sync-viz-contracts.mjs --target=<path>   # explicit clone path
+```
+
+A contract change therefore touches three places: the package, `apps/mcp-server/src/viz/*`, and the
+regenerated frontend copy.
 
 Visual golden baseline (pre-Cortex wiring): `data-verse-render` commit `f98f902`.
 

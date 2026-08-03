@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { VizMeter } from "@cortex/viz-contracts";
 import { readoutChannels, hex } from "@/lib/dataverse-data";
 

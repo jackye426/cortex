@@ -1,4 +1,4 @@
-﻿import { useMemo } from "react";
+import { useMemo } from "react";
 import { useDataCanvas } from "@/lib/dataverse-canvas";
 import { seeded, hex } from "@/lib/dataverse-data";
 
@@ -83,10 +83,10 @@ export function InsightField({
   channels,
   halfLabels = { top: "OPS", bottom: "REFL" },
 }: {
-  nodeCount?: number;
+  nodeCount?: number | undefined;
   /** Cortex source-family bars — labels/values only; topology stays generative. */
-  channels?: ChannelOverlay[];
-  halfLabels?: { top: string; bottom: string };
+  channels?: ChannelOverlay[] | undefined;
+  halfLabels?: { top: string; bottom: string } | undefined;
 }) {
   const { nodes, edges } = useMemo(() => build(nodeCount), [nodeCount]);
   const platforms = useMemo(() => {

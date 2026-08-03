@@ -1,4 +1,4 @@
-﻿import { seeded } from "./dataverse-data";
+import { seeded } from "./dataverse-data";
 
 export type Vec3 = { x: number; y: number; z: number };
 export type BrainPoint = Vec3 & { s: number; a: number };
@@ -38,12 +38,12 @@ export function buildBrain(count = 9000): BrainPoint[] {
       const u = rnd() * 2 - 1;
       const t = rnd() * Math.PI * 2;
       const r = Math.sqrt(1 - u * u);
-      let dx = r * Math.cos(t);
-      let dy = u;
-      let dz = r * Math.sin(t);
+      const dx = r * Math.cos(t);
+      const dy = u;
+      const dz = r * Math.sin(t);
 
       const k = opts.fold ? gyri(dx, dy, dz) : 1;
-      let x = cx + dx * rx * k;
+      const x = cx + dx * rx * k;
       let y = cy + dy * ry * k;
       let z = cz + dz * rz * k;
 
@@ -63,7 +63,7 @@ export function buildBrain(count = 9000): BrainPoint[] {
         if (Math.abs(z) < 0.05) continue;
       }
 
-      // a fraction of samples pushed inward ΓåÆ volumetric density
+      // a fraction of samples pushed inward → volumetric density
       const inward = rnd() < 0.2 ? 0.72 + rnd() * 0.24 : 1;
       const lam = opts.lamellae ? 0.35 + 0.65 * Math.abs(Math.sin(y * 46)) : 1;
 

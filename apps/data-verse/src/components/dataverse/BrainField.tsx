@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { brainCloud, brainNodes } from "@/lib/dataverse-brain";
 import { hex, pad } from "@/lib/dataverse-data";
 
@@ -11,11 +11,11 @@ export type BrainNodeOverlay = {
 };
 
 type Props = {
-  annotations?: boolean;
-  caption?: string;
-  spin?: number;
+  annotations?: boolean | undefined;
+  caption?: string | undefined;
+  spin?: number | undefined;
   /** Cortex labels mapped onto anatomical anchors — geometry stays generative. */
-  nodeOverlays?: BrainNodeOverlay[];
+  nodeOverlays?: BrainNodeOverlay[] | undefined;
 };
 
 export function BrainField({
