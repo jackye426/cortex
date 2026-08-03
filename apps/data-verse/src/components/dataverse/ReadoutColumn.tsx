@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { VizMeter } from "@cortex/viz-contracts";
 import { readoutChannels, hex } from "@/lib/dataverse-data";
 
-type Props = { meters?: VizMeter[]; title?: string };
+type Props = { meters?: VizMeter[] | undefined; title?: string | undefined };
 
 export function ReadoutColumn({ meters, title = "READOUT" }: Props) {
   const live = Boolean(meters && meters.length > 0);
@@ -20,18 +20,24 @@ export function ReadoutColumn({ meters, title = "READOUT" }: Props) {
     setValues(base.map((c) => c.value));
   }, [base]);
 
+  // The channels keep sampling either way. Offline they random-walk; on live
+  // data they jitter around the measured value, so the instrument stays alive
+  // without the bar drifting away from what was actually measured.
   useEffect(() => {
-    if (live) return;
     const id = window.setInterval(() => {
       setValues((prev) =>
-        prev.map((v) => {
-          const next = v + (Math.random() - 0.5) * 0.12;
-          return Math.min(1, Math.max(0, next));
+        prev.map((v, i) => {
+          if (!live) {
+            return Math.min(1, Math.max(0, v + (Math.random() - 0.5) * 0.12));
+          }
+          const truth = base[i]?.value ?? v;
+          const noise = (Math.random() - 0.5) * 0.008;
+          return Math.min(1, Math.max(0, truth + noise));
         }),
       );
     }, 420);
     return () => window.clearInterval(id);
-  }, [live]);
+  }, [live, base]);
 
   return (
     <aside className="flex min-h-0 flex-col">

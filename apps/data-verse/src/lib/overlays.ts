@@ -2,6 +2,10 @@
 import type { VizDensity, VizMeter } from "@cortex/viz-contracts";
 import type { BrainDataPoint, BrainNodeOverlay } from "@/components/dataverse/BrainField";
 import type { ChannelOverlay } from "@/components/dataverse/InsightField";
+import type {
+  OrbitOverlay,
+  ParticleDataPoint,
+} from "@/components/dataverse/ParticleField";
 import type { ScanSliceOverlay } from "@/components/dataverse/ScanSlices";
 
 export function brainOverlays(d: VizDensity): BrainNodeOverlay[] | undefined {
@@ -83,6 +87,75 @@ export function particleLabelTexts(d: VizDensity): string[] | undefined {
   const fromMeters = d.meters?.map((m) => m.label) ?? [];
   const merged = [...fromAnno, ...fromMeters].filter(Boolean);
   return merged.length ? merged : undefined;
+}
+
+/** Measured return-rhythms for index 02 — filler rings carry no health. */
+export function orbitOverlays(d: VizDensity): OrbitOverlay[] | undefined {
+  if (!d.orbits?.length) return undefined;
+  return d.orbits.map((o) => ({
+    ...(o.id ? { id: o.id } : {}),
+    ...(o.label ? { label: o.label } : {}),
+    tilt: o.tilt,
+    yaw: o.yaw,
+    r: o.r,
+    ecc: o.ecc,
+    accent: o.accent,
+    ...(o.periodDays === undefined ? {} : { periodDays: o.periodDays }),
+    ...(o.health === undefined ? {} : { health: o.health }),
+    ...(o.stalled === undefined ? {} : { stalled: o.stalled }),
+    ...(o.phase === undefined ? {} : { phase: o.phase }),
+    ...(o.events === undefined ? {} : { events: o.events }),
+  }));
+}
+
+export function particleDataPoints(d: VizDensity): ParticleDataPoint[] | undefined {
+  if (!d.points?.length) return undefined;
+  return d.points.map((p) => ({
+    x: p.x,
+    y: p.y,
+    z: p.z,
+    ...(p.a === undefined ? {} : { a: p.a }),
+    ...(p.s === undefined ? {} : { s: p.s }),
+  }));
+}
+
+/** Chrome readouts for index 02. */
+export function particleReadouts(d: VizDensity): {
+  basis: string;
+  cells: string[];
+} {
+  const meta: Record<string, unknown> = d.meta ?? {};
+  const num = (key: string): number | null => {
+    const v = meta[key];
+    return typeof v === "number" ? v : null;
+  };
+  const str = (key: string): string | null => {
+    const v = meta[key];
+    return typeof v === "string" ? v : null;
+  };
+
+  const dims = num("embeddingDims");
+  const model = str("embeddingModel");
+  const embedded = num("embeddedCount");
+  const realOrbits = num("realOrbits");
+  const rhythms = num("rhythmCount");
+  const impulses = num("impulseCount");
+  const tightest = num("tightestPeriodDays");
+  const accentSeries = str("accentSeries");
+
+  const basis = dims
+    ? `BASIS ${(model ?? "EMBED").split("/").pop()?.toUpperCase()} / DIM ${dims}`
+    : "FRAME BARYCENTRIC / EPOCH J2000";
+
+  return {
+    basis,
+    cells: [
+      `PTS ${embedded ?? 0}`,
+      `ORBITS ${String(realOrbits ?? 0).padStart(3, "0")} / ${rhythms ?? 0} RHYTHM`,
+      tightest ? `PERIOD MIN ${tightest.toFixed(2)}D` : "PERIOD —",
+      accentSeries ? `ENTERING ${accentSeries.slice(0, 14)}` : `IMPULSE ${impulses ?? 0}`,
+    ],
+  };
 }
 
 export function crossChannels(d: VizDensity): ChannelOverlay[] | undefined {

@@ -66,6 +66,18 @@ export interface VizOrbit {
   accent: boolean;
   id?: string;
   label?: string;
+  /** Mean days between returns; null/absent for one-off impulses. */
+  periodDays?: number | null;
+  daysSinceLast?: number;
+  /** Distinct sittings (events clustered by day). */
+  returns?: number;
+  events?: number;
+  /** Overdue-ness 0–1: 1 = on schedule, → 0 = long past due. */
+  health?: number;
+  /** No measurable rhythm, or coasting — the body stops moving. */
+  stalled?: boolean;
+  /** Deterministic starting angle 0–1 so bodies do not jump between refreshes. */
+  phase?: number;
 }
 
 export interface VizEdge {

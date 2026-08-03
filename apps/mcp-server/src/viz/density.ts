@@ -13,9 +13,8 @@ import {
 import type { CortexStore } from "../store/index.js";
 import { rankConnectionCandidates, type CandidateMemory } from "../connection-candidates.js";
 import { auditSourceCoverage } from "../intrapersonal/source-health.js";
-import { runPriorityVsActual } from "../project-brief.js";
-import { jitterAround, projectEmbedding, seeded } from "./project-3d.js";
-import { loadVizProjectionSnapshot } from "./projection-job.js";
+import { jitterAround, normalizeCloud, projectEmbedding, seeded } from "./project-3d.js";
+import { computeSeries, seriesToOrbits } from "./orbital-series.js";
 import {
   assignTopicFamilies,
   classifyCalendarSummary,
@@ -349,77 +348,129 @@ async function buildScan(store: CortexStore): Promise<VizDensity> {
   };
 }
 
-async function buildParticle(store: CortexStore): Promise<VizDensity> {
-  const snap = await loadVizProjectionSnapshot(store);
-  let points: VizPoint3[] = [];
-  let orbits = snap?.orbits ?? [];
-  let annotations = (snap?.labels ?? []).map((l) => ({
-    id: l.id,
-    label: l.label,
-    x: l.x,
-    y: l.y,
-    z: l.z,
-  }));
+const PARTICLE_CALENDAR_DAYS = 180;
+const READOUT_CHANNELS = 8;
+/** One-offs shown as parked bodies; the rest are dropped as noise. */
+const MAX_IMPULSE_ORBITS = 6;
 
-  if (snap?.points?.length) {
-    points = snap.points.slice(0, POINT_CAP).map((p) => ({
-      x: p.x,
-      y: p.y,
-      z: p.z,
-      a: p.a,
-      s: p.s,
-      id: p.id,
-      label: p.label,
-      region: p.region,
-    }));
-  } else {
-    // Fallback: project on the fly from available embeddings (bounded)
-    const distillates = await store.listDistillates({ limit: 800 });
-    points = distillates
-      .filter((d) => d.embedding?.length)
-      .slice(0, 800)
-      .map((d) => {
-        const p = projectEmbedding(d.embedding!);
-        return { ...p, a: 0.5, id: d.id, label: d.kind.slice(0, 24) };
-      });
+/**
+ * Index 02 — rhythm, not composition.
+ *
+ * Orbits are measured return intervals: radius is period, eccentricity is
+ * irregularity, and alpha decays with how overdue a rhythm is. Particles are
+ * the embedded distillate corpus as texture — semantic position, recency
+ * brightness — and the labels name the series and projects behind the geometry.
+ */
+async function buildParticle(store: CortexStore): Promise<VizDensity> {
+  const calendarStart = new Date(
+    Date.now() - PARTICLE_CALENDAR_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const [events, distillates, entities] = await Promise.all([
+    store.getCalendarStructure(calendarStart, new Date().toISOString()).catch(() => []),
+    store.listDistillates({ limit: 800 }),
+    store.listEntities("project", 40).catch(() => []),
+  ]);
+
+  // Rhythms are the point of this index; impulses are context. Without a cap
+  // a few dozen one-offs would fill every slot with identical parked rings.
+  //
+  // "Has a rhythm" and "is on schedule" are different questions: a 7-day
+  // commitment 40 days overdue is the most interesting body in the system, so
+  // it is kept as a rhythm (dim and stalled) rather than binned with one-offs.
+  const allSeries = computeSeries(events);
+  const rhythmSeries = allSeries.filter((s) => s.periodDays !== null);
+  const impulseSeries = allSeries
+    .filter((s) => s.periodDays === null)
+    .sort((a, b) => a.daysSinceLast - b.daysSinceLast)
+    .slice(0, MAX_IMPULSE_ORBITS);
+  const series = [...rhythmSeries, ...impulseSeries];
+  const realOrbits = seriesToOrbits(series).slice(0, DENSITY_BUDGETS.particle.orbits);
+
+  // Keep the shell's orbit count; anything past the measured series is dim
+  // background so the field stays dense without pretending to be data.
+  const orbits: VizDensity["orbits"] = realOrbits.map((o) => ({
+    tilt: o.tilt,
+    yaw: o.yaw,
+    r: o.r,
+    ecc: o.ecc,
+    accent: o.accent,
+    id: o.id,
+    label: o.label,
+    periodDays: o.periodDays,
+    daysSinceLast: o.daysSinceLast,
+    returns: o.returns,
+    events: o.events,
+    health: o.health,
+    stalled: o.stalled,
+    phase: o.phase,
+  }));
+  const fillerRnd = seeded(66);
+  for (let i = orbits.length; i < DENSITY_BUDGETS.particle.orbits; i++) {
+    orbits.push({
+      tilt: fillerRnd() * Math.PI,
+      yaw: fillerRnd() * Math.PI * 2,
+      r: 0.9 + fillerRnd() * 1.8,
+      ecc: 0.35 + fillerRnd() * 0.6,
+      accent: false,
+      id: `filler-${i}`,
+    });
   }
 
-  const pva = await runPriorityVsActual(store, { dryRun: true });
-  const meters = pva.attribution.slice(0, 8).map((row, i) => ({
-    id: String(i + 1).padStart(2, "0"),
-    label: row.projectKey.slice(0, 12).toUpperCase(),
-    value: Math.min(1, row.pct ?? row.hours / 40),
-  }));
+  // Particles: the embedded corpus, rescaled to fill the sphere.
+  const embedded = distillates.filter((d) => d.embedding?.length).slice(0, POINT_CAP);
+  const newest = embedded.reduce(
+    (max, d) => Math.max(max, Date.parse(d.createdAt ?? "") || 0),
+    0,
+  );
+  const oldest = embedded.reduce(
+    (min, d) => Math.min(min, Date.parse(d.createdAt ?? "") || Number.MAX_SAFE_INTEGER),
+    Number.MAX_SAFE_INTEGER,
+  );
+  const ageSpan = Math.max(1, newest - oldest);
+  const projected = embedded.map((d) => {
+    const p = projectEmbedding(d.embedding!);
+    const age = (Date.parse(d.createdAt ?? "") || oldest) - oldest;
+    const recency = age / ageSpan;
+    return {
+      ...p,
+      id: d.id,
+      label: d.kind.slice(0, 24),
+      region: d.kind,
+      a: 0.3 + recency * 0.6,
+      s: d.kind === "project_brief" ? 1.5 : 1,
+      t: recency,
+    };
+  });
+  const points: VizPoint3[] = normalizeCloud(projected);
 
-  // Expand floating labels to shell budget from projects + distillate tags
+  // Labels: measured series first, then real project keys.
   const labelPool = [
-    ...meters.map((m) => m.label),
-    ...annotations.map((a) => a.label),
-    ...points.map((p) => p.label).filter((x): x is string => Boolean(x)),
-  ];
-  if (labelPool.length > 0) {
-    const rndL = seeded(66123);
-    annotations = Array.from({ length: DENSITY_BUDGETS.particle.labels }, (_, i) => ({
+    ...realOrbits.map((o) => o.label),
+    ...entities.map((e) => e.canonicalKey.toUpperCase()),
+  ].filter(Boolean);
+  const rndL = seeded(66123);
+  const annotations = Array.from(
+    { length: DENSITY_BUDGETS.particle.labels },
+    (_, i) => ({
       id: `L${String(i + 1).padStart(2, "0")}`,
-      label: (labelPool[i % labelPool.length] ?? "CORTEX").slice(0, 12).toUpperCase(),
+      label: (labelPool[i % Math.max(1, labelPool.length)] ?? "CORTEX").slice(0, 22),
       x: (rndL() - 0.5) * 2.4,
       y: (rndL() - 0.5) * 1.6,
       z: (rndL() - 0.5) * 2.4,
-    }));
-  }
+    }),
+  );
 
-  if (!orbits.length) {
-    const rnd = seeded(66);
-    orbits = Array.from({ length: DENSITY_BUDGETS.particle.orbits }, (_, i) => ({
-      tilt: rnd() * Math.PI,
-      yaw: rnd() * Math.PI * 2,
-      r: 0.9 + rnd() * 1.8,
-      ecc: 0.35 + rnd() * 0.6,
-      accent: i === 3 || i === 11,
-      id: `o${i}`,
-      label: meters[i % Math.max(1, meters.length)]?.label ?? "ORBIT",
-    }));
-  }
+  // Readout: overdue-ness per series. 1.000 = on schedule, 0.000 = gone.
+  const meters = series.slice(0, READOUT_CHANNELS).map((s, i) => ({
+    id: String(i + 1).padStart(2, "0"),
+    label: s.key.slice(0, 14),
+    value: Math.max(0, Math.min(1, s.health)),
+  }));
+
+  const tightest = rhythmSeries.reduce<number | null>(
+    (min, s) => (s.periodDays !== null && (min === null || s.periodDays < min) ? s.periodDays : min),
+    null,
+  );
 
   return {
     view: "particle",
@@ -432,10 +483,19 @@ async function buildParticle(store: CortexStore): Promise<VizDensity> {
         ? meters
         : [{ id: "01", label: "PTS", value: Math.min(1, points.length / POINT_CAP) }],
     meta: shellMeta("particle", {
-      empty: points.length === 0 && annotations.length === 0,
-      fromSnapshot: Boolean(snap),
+      empty: points.length === 0 && realOrbits.length === 0,
       pointCap: POINT_CAP,
       overlayLabels: annotations.length,
+      realOrbits: realOrbits.length,
+      seriesCount: allSeries.length,
+      rhythmCount: rhythmSeries.length,
+      impulseCount: allSeries.length - rhythmSeries.length,
+      tightestPeriodDays: tightest,
+      accentSeries: realOrbits.find((o) => o.accent)?.label ?? null,
+      embeddedCount: embedded.length,
+      embeddingModel: embedded[0]?.embeddingRef ?? null,
+      embeddingDims: embedded[0]?.embedding?.length ?? null,
+      calendarEvents: events.length,
     }),
   };
 }

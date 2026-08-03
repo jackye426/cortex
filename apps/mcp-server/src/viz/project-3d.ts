@@ -46,6 +46,43 @@ export function projectEmbedding(
   return { x: squash(x), y: squash(y), z: squash(z) };
 }
 
+/**
+ * Rescale a projected cloud to fill the shell's unit sphere.
+ *
+ * A random unit axis dotted with a unit-normalized 1536-dim embedding has an
+ * expected magnitude around 1/sqrt(dim) ≈ 0.026, so raw projections collapse
+ * into a speck at the origin. Centre the cloud, then scale so the 95th
+ * percentile radius lands at 1.0 — robust to the handful of outliers that
+ * would otherwise squash everything back toward the middle.
+ */
+export function normalizeCloud<T extends { x: number; y: number; z: number }>(
+  points: T[],
+  target = 1,
+): T[] {
+  if (points.length === 0) return points;
+  const mean = points.reduce(
+    (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y, z: acc.z + p.z }),
+    { x: 0, y: 0, z: 0 },
+  );
+  mean.x /= points.length;
+  mean.y /= points.length;
+  mean.z /= points.length;
+
+  const centred = points.map((p) => ({
+    ...p,
+    x: p.x - mean.x,
+    y: p.y - mean.y,
+    z: p.z - mean.z,
+  }));
+  const radii = centred
+    .map((p) => Math.hypot(p.x, p.y, p.z))
+    .sort((a, b) => a - b);
+  const p95 = radii[Math.min(radii.length - 1, Math.floor(radii.length * 0.95))] ?? 0;
+  if (!p95) return centred;
+  const k = target / p95;
+  return centred.map((p) => ({ ...p, x: p.x * k, y: p.y * k, z: p.z * k }));
+}
+
 /** Region centers for self-model facets (scan view). */
 export const FACET_CENTERS = {
   strengths: { x: 0.7, y: 0.25, z: 0.25 },
