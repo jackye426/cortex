@@ -27,6 +27,7 @@ import {
   sessionToRecent,
 } from "./fixtures.js";
 import type {
+  DistillateKindStat,
   AffectSignalRow,
   CalendarEventItem,
   CalendarStructureItem,
@@ -166,6 +167,25 @@ export class FixtureStore implements CortexStore {
         );
       })
       .slice(0, capped);
+  }
+
+  async listDistillateStats(): Promise<DistillateKindStat[]> {
+    const byKind = new Map<string, DistillateKindStat>();
+    for (const d of fixtureDistillates) {
+      const stat = byKind.get(d.kind) ?? {
+        kind: d.kind,
+        count: 0,
+        embedded: 0,
+        lastCreatedAt: null,
+      };
+      stat.count += 1;
+      if (d.embeddingRef) stat.embedded += 1;
+      if (d.createdAt && (!stat.lastCreatedAt || d.createdAt > stat.lastCreatedAt)) {
+        stat.lastCreatedAt = d.createdAt;
+      }
+      byKind.set(d.kind, stat);
+    }
+    return [...byKind.values()].sort((a, b) => b.count - a.count);
   }
 
   async listDistillates(options: {

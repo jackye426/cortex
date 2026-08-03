@@ -39,6 +39,7 @@ import type {
   CortexStore,
   DecisionOutcomeRow,
   DecisionRow,
+  DistillateKindStat,
   DistillateRow,
   EmailThread,
   EntityLinkRow,
@@ -780,6 +781,53 @@ export class SupabaseStore implements CortexStore {
       );
     }
     return rows.slice(0, capped);
+  }
+
+  async listDistillateStats(): Promise<DistillateKindStat[]> {
+    const PAGE = 1000;
+    const MAX_ROWS = 20000;
+    const byKind = new Map<string, DistillateKindStat>();
+
+    for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
+      // Three narrow columns only — never the vectors.
+      let q = this.client
+        .from("distillates")
+        .select("kind, created_at, embedding_ref")
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .range(offset, offset + PAGE - 1);
+      q = this.applyOwner(q);
+      const { data, error } = await q;
+      if (error) {
+        console.warn("[store/supabase] listDistillateStats:", error.message);
+        break;
+      }
+      const rows = (data ?? []) as Array<{
+        kind: string | null;
+        created_at: string | null;
+        embedding_ref: string | null;
+      }>;
+      for (const row of rows) {
+        const kind = row.kind ?? "unknown";
+        const stat = byKind.get(kind) ?? {
+          kind,
+          count: 0,
+          embedded: 0,
+          lastCreatedAt: null,
+        };
+        stat.count += 1;
+        if (row.embedding_ref) stat.embedded += 1;
+        if (
+          row.created_at &&
+          (!stat.lastCreatedAt || row.created_at > stat.lastCreatedAt)
+        ) {
+          stat.lastCreatedAt = row.created_at;
+        }
+        byKind.set(kind, stat);
+      }
+      if (rows.length < PAGE) break;
+    }
+
+    return [...byKind.values()].sort((a, b) => b.count - a.count);
   }
 
   async listDistillates(options: {

@@ -7,11 +7,7 @@ import {
   familyFromDistillateKind,
   familyFromSourceId,
 } from "./source-family.js";
-import type {
-  SourceCoverageReport,
-  SourceCoverageRow,
-  SourceFamily,
-} from "./types.js";
+import type { SourceCoverageReport, SourceCoverageRow } from "./types.js";
 
 const TRACKED_SOURCES = [
   "cursor",
@@ -45,9 +41,18 @@ function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * 86400000).toISOString();
 }
 
-function inWindow(iso: string | null | undefined, since: string): boolean {
+/**
+ * Recency window. The upper bound matters: calendar records carry future
+ * `occurred_at` values, and without it every scheduled meeting counted as
+ * "recent signal", masking a stalled source.
+ */
+function inWindow(
+  iso: string | null | undefined,
+  since: string,
+  until = new Date().toISOString(),
+): boolean {
   if (!iso) return false;
-  return iso >= since;
+  return iso >= since && iso <= until;
 }
 
 export async function auditSourceCoverage(
@@ -55,28 +60,53 @@ export async function auditSourceCoverage(
 ): Promise<SourceCoverageReport> {
   const since7 = daysAgoIso(7);
   const since30 = daysAgoIso(30);
-  const distillates = await store.listDistillates({ limit: 400 });
+  // Whole-table totals; listDistillates caps at 200 rows ordered by recency.
+  const kindStats = await store.listDistillateStats();
 
-  const byFamilyDistillates = new Map<SourceFamily, typeof distillates>();
-  let reflective = 0;
-  let operational = 0;
-  let aiSessionDistillates = 0;
+  // Shares come from totals too — sampling the newest 200 made whichever batch
+  // ran last look like the entire vault.
+  let totalKindCount = 0;
+  let reflectiveTotal = 0;
+  let operationalTotal = 0;
+  let aiSessionTotal = 0;
+  for (const stat of kindStats) {
+    totalKindCount += stat.count;
+    if ((REFLECTIVE_KINDS as readonly string[]).includes(stat.kind)) {
+      reflectiveTotal += stat.count;
+    }
+    if ((OPERATIONAL_KINDS as readonly string[]).includes(stat.kind)) {
+      operationalTotal += stat.count;
+    }
+    if (familyFromDistillateKind(stat.kind) === "ai_sessions") {
+      aiSessionTotal += stat.count;
+    }
+  }
+  const totalDist = Math.max(totalKindCount, 1);
 
-  for (const d of distillates) {
-    const family = familyFromDistillateKind(d.kind);
-    const bucket = byFamilyDistillates.get(family) ?? [];
-    bucket.push(d);
-    byFamilyDistillates.set(family, bucket);
-    if ((REFLECTIVE_KINDS as readonly string[]).includes(d.kind)) {
-      reflective += 1;
+  // Sessions grouped by source, so ai_sessions rows can report real ingest.
+  const recentSessionsBySource = new Map<
+    string,
+    Array<{ occurredAt: string | null }>
+  >();
+  try {
+    const recent = await store.listRecentWork({
+      limit: 500,
+      kinds: ["session"],
+      horizonDays: null,
+      workMode: false,
+    });
+    for (const item of recent) {
+      const list = recentSessionsBySource.get(item.sourceId) ?? [];
+      list.push({ occurredAt: item.occurredAt });
+      recentSessionsBySource.set(item.sourceId, list);
     }
-    if ((OPERATIONAL_KINDS as readonly string[]).includes(d.kind)) {
-      operational += 1;
-    }
-    if (family === "ai_sessions") aiSessionDistillates += 1;
+  } catch (err) {
+    console.warn(
+      "[source-health] session sampling failed:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
 
-  const totalDist = Math.max(distillates.length, 1);
   const sources: SourceCoverageRow[] = [];
 
   for (const sourceId of TRACKED_SOURCES) {
@@ -93,32 +123,33 @@ export async function auditSourceCoverage(
       }
     }
 
-    // AI session sources: approximate via session summaries metadata / subject
-    const familyDistillates = byFamilyDistillates.get(family) ?? [];
+    // AI session sources store sessions, not records, so the record-type map
+    // above cannot see them: every session source reported zero ingest
+    // regardless of how much had landed, which made a healthy source look dead.
+    if (family === "ai_sessions") {
+      const sessions = recentSessionsBySource.get(sourceId) ?? [];
+      for (const s of sessions) {
+        if (inWindow(s.occurredAt, since7)) recordCount7d += 1;
+        if (inWindow(s.occurredAt, since30)) recordCount30d += 1;
+      }
+    }
+
+    // Counted from per-kind totals rather than the recency sample, so a source
+    // distilled before the latest run no longer reports zero.
     let distillateCount = 0;
     let embedded = 0;
     let lastDistillateAt: string | null = null;
 
-    if (recordTypes.length === 0 && family === "ai_sessions") {
-      // Count summaries; cannot always attribute to a specific AI source in metadata.
-      const summaries = distillates.filter((d) => d.kind === "summary");
-      distillateCount = summaries.length;
-      embedded = summaries.filter((d) => Boolean(d.embedding?.length)).length;
-      lastDistillateAt = summaries[0]?.updatedAt ?? null;
-    } else {
-      const matched = familyDistillates.filter((d) => {
-        const st =
-          typeof d.metadata.sourceType === "string"
-            ? d.metadata.sourceType
-            : typeof d.metadata.sourceId === "string"
-              ? d.metadata.sourceId
-              : "";
-        return !st || st === sourceId || familyFromSourceId(st) === family;
-      });
-      distillateCount = matched.length || familyDistillates.length;
-      const pool = matched.length ? matched : familyDistillates;
-      embedded = pool.filter((d) => Boolean(d.embedding?.length)).length;
-      lastDistillateAt = pool[0]?.updatedAt ?? null;
+    for (const stat of kindStats) {
+      if (familyFromDistillateKind(stat.kind) !== family) continue;
+      distillateCount += stat.count;
+      embedded += stat.embedded;
+      if (
+        stat.lastCreatedAt &&
+        (!lastDistillateAt || stat.lastCreatedAt > lastDistillateAt)
+      ) {
+        lastDistillateAt = stat.lastCreatedAt;
+      }
     }
 
     const embedCoverage =
@@ -127,12 +158,12 @@ export async function auditSourceCoverage(
     // Drowning risk: AI share of recent distillates, higher when reflective volume low.
     const drowningRisk =
       family === "ai_sessions"
-        ? Math.min(1, aiSessionDistillates / totalDist)
+        ? Math.min(1, aiSessionTotal / totalDist)
         : Math.max(
             0,
             Math.min(
               1,
-              aiSessionDistillates / totalDist -
+              aiSessionTotal / totalDist -
                 distillateCount / totalDist,
             ),
           );
@@ -150,13 +181,13 @@ export async function auditSourceCoverage(
   }
 
   const notes: string[] = [];
-  const aiShare = aiSessionDistillates / totalDist;
+  const aiShare = aiSessionTotal / totalDist;
   if (aiShare > 0.6) {
     notes.push(
       `AI session distillates are ${Math.round(aiShare * 100)}% of recent memory — reflective retrieval should use source balancing.`,
     );
   }
-  if (reflective === 0) {
+  if (reflectiveTotal === 0) {
     notes.push("No reflective distillates found in recent list.");
   }
   const quiet = sources.filter(
@@ -174,8 +205,8 @@ export async function auditSourceCoverage(
   return {
     generatedAt: new Date().toISOString(),
     sources,
-    reflectiveShare: Number((reflective / totalDist).toFixed(3)),
-    operationalShare: Number((operational / totalDist).toFixed(3)),
+    reflectiveShare: Number((reflectiveTotal / totalDist).toFixed(3)),
+    operationalShare: Number((operationalTotal / totalDist).toFixed(3)),
     aiSessionShareOfRecentDistillates: Number(aiShare.toFixed(3)),
     notes,
   };

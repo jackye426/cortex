@@ -51,7 +51,7 @@ import {
   postEnvelope,
 } from "./ingest-client.js";
 
-type SourceOpt =
+export type SourceOpt =
   | "claude"
   | "codex"
   | "cursor"
@@ -90,6 +90,10 @@ interface CliOptions {
 function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = { source: "all", dryRun: false };
   for (const arg of argv) {
+    // pnpm 10 forwards the `--` separator instead of stripping it, so the
+    // documented `pnpm backfill -- --source=x` form arrives with a literal
+    // "--" in argv. Ignore it rather than failing the whole run.
+    if (arg === "--") continue;
     if (arg === "--dry-run" || arg === "-n") {
       opts.dryRun = true;
       continue;
@@ -520,6 +524,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const totals = await runBackfill(opts);
+
+  console.info("[backfill] done", totals);
+  if (totals.fail > 0) process.exit(1);
+}
+
+export interface BackfillTotals {
+  ok: number;
+  fail: number;
+  total: number;
+}
+
+/**
+ * Run the configured sources once.
+ *
+ * Exported so the collector daemon can sweep local/API sources on a timer:
+ * these were backfill-only, which meant they silently stopped flowing the
+ * moment nobody ran the command by hand.
+ */
+export async function runBackfill(opts: CliOptions): Promise<BackfillTotals> {
+  const config = getIngestConfig();
   const totals = { ok: 0, fail: 0, total: 0 };
 
   if (opts.source === "claude" || opts.source === "all") {
@@ -834,11 +859,13 @@ async function main(): Promise<void> {
     totals.total += r.total;
   }
 
-  console.info("[backfill] done", totals);
-  if (totals.fail > 0) process.exit(1);
+  return totals;
 }
 
-main().catch((err) => {
-  console.error("[backfill] fatal", err);
-  process.exit(1);
-});
+/** Only run the CLI when invoked directly, not when the daemon imports it. */
+if (process.argv[1] && /backfill\.(ts|js)$/.test(process.argv[1])) {
+  main().catch((err) => {
+    console.error("[backfill] fatal", err);
+    process.exit(1);
+  });
+}

@@ -158,6 +158,15 @@ export interface FileSummary {
 }
 
 /** Matches public.distillates row shape (minus owner_id for fixture mode). */
+/** Aggregate per distillate kind — counted, not sampled. */
+export interface DistillateKindStat {
+  kind: string;
+  count: number;
+  /** Rows carrying an embedding reference. */
+  embedded: number;
+  lastCreatedAt: string | null;
+}
+
 export interface DistillateRow {
   id: string;
   subjectType: string;
@@ -382,6 +391,14 @@ export interface CortexStore {
     kinds?: string[];
     missingEmbedding?: boolean;
   }): Promise<DistillateRow[]>;
+  /**
+   * Per-kind totals without loading vectors.
+   *
+   * Coverage reporting used to sample listDistillates, which caps at 200 rows
+   * ordered by recency — so any source distilled before the latest run showed
+   * as zero and the newest batch looked like the whole vault.
+   */
+  listDistillateStats(): Promise<DistillateKindStat[]>;
   searchMemory(
     query: string,
     options?: MemorySearchOptions,
