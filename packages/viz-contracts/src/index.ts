@@ -54,6 +54,8 @@ export interface VizPoint3 {
   evidenceFamilies?: number;
   id?: string;
   label?: string;
+  /** Normalized position in the view's time window (0–1) — the scan's 4th axis. */
+  t?: number;
 }
 
 export interface VizOrbit {
@@ -99,6 +101,8 @@ export interface VizAnnotation {
   x: number;
   y: number;
   z: number;
+  /** Second readout line: plain-language gloss + counts for evocative labels. */
+  sub?: string;
 }
 
 export interface VizMeter {
@@ -119,6 +123,10 @@ export interface VizSlice {
   region?: string;
   /** Optional subset of point indexes for this slab. */
   pointIndexes?: number[];
+  /** Records falling in this slab — drives the section-matrix readout. */
+  count?: number;
+  /** Short slab label (e.g. session ordinal or family). */
+  label?: string;
 }
 
 /** Visual density budgets — client shells own geometry at these counts. */

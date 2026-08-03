@@ -5,9 +5,24 @@ import { hex, pad } from "@/lib/dataverse-data";
 export type BrainNodeOverlay = {
   id: string;
   label: string;
+  /** Second readout line under the label. */
+  sub?: string;
   x?: number;
   y?: number;
   z?: number;
+};
+
+/** A real record bound into the volume — anatomy stays generative around it. */
+export type BrainDataPoint = {
+  x: number;
+  y: number;
+  z: number;
+  /** Alpha 0–1 */
+  a?: number;
+  /** Size multiplier */
+  s?: number;
+  /** Normalized position in the time window (0–1) — drives the sweep. */
+  t?: number;
 };
 
 type Props = {
@@ -16,6 +31,8 @@ type Props = {
   spin?: number | undefined;
   /** Cortex labels mapped onto anatomical anchors — geometry stays generative. */
   nodeOverlays?: BrainNodeOverlay[] | undefined;
+  /** Cortex records rendered as bright voxels inside the generative cloud. */
+  dataPoints?: BrainDataPoint[] | undefined;
 };
 
 export function BrainField({
@@ -23,9 +40,12 @@ export function BrainField({
   caption = "VOLUME 01 / STRUCTURE ENCEPHALON / SAMPLING CONTINUOUS",
   spin = 0.14,
   nodeOverlays,
+  dataPoints,
 }: Props) {
   const POINTS = brainCloud(9000);
-  const nodes = useMemo(() => {
+  const nodes = useMemo<
+    Array<{ id: string; label: string; sub?: string; x: number; y: number; z: number }>
+  >(() => {
     if (!nodeOverlays?.length) return brainNodes;
     return brainNodes.map((anchor, i) => {
       const o = nodeOverlays[i % nodeOverlays.length]!;
@@ -33,6 +53,7 @@ export function BrainField({
         ...anchor,
         id: o.id || anchor.id,
         label: o.label || anchor.label,
+        ...(o.sub ? { sub: o.sub } : {}),
         x: o.x ?? anchor.x,
         y: o.y ?? anchor.y,
         z: o.z ?? anchor.z,
@@ -69,9 +90,9 @@ export function BrainField({
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
 
-    const fg = () =>
-      getComputedStyle(document.documentElement).getPropertyValue("--dv-fg").trim() ||
-      "#fff";
+    const css = getComputedStyle(document.documentElement);
+    const fg = () => css.getPropertyValue("--dv-fg").trim() || "#fff";
+    const accent = css.getPropertyValue("--dv-accent").trim() || "#ff3b30";
 
     let raf = 0;
     let frame = 0;
@@ -119,6 +140,25 @@ export function BrainField({
         ctx.fillRect(sx, sy, s, s);
       }
       ctx.globalAlpha = 1;
+
+      // Bound records: brighter voxels inside the anatomy, with a slab of the
+      // time window lit in accent so the sweep reads as the scan's 4th axis.
+      if (dataPoints?.length) {
+        const sweep = (t * 0.09) % 1;
+        for (let i = 0; i < dataPoints.length; i++) {
+          const pt = dataPoints[i]!;
+          const { sx, sy, depth, p } = project(pt.x, pt.y, pt.z);
+          const shade = 0.3 + ((depth + 1.2) / 2.4) * 0.7;
+          const dt = pt.t === undefined ? 1 : Math.abs(pt.t - sweep);
+          const inSlab = dt < 0.045;
+          ctx.fillStyle = inSlab ? accent : color;
+          ctx.globalAlpha = Math.min(1, (pt.a ?? 0.6) * shade * (inSlab ? 1.6 : 1.15));
+          const s = (pt.s ?? 1) * 1.7 * p * (dpr > 1 ? 1.05 : 1.2);
+          ctx.fillRect(sx - s / 2, sy - s / 2, s, s);
+        }
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 1;
+      }
 
       const c = 1.18;
       const corners: Array<[number, number, number]> = [
@@ -177,7 +217,9 @@ export function BrainField({
           ctx.textAlign = align;
           ctx.fillText(`${n.id} ${n.label}`, tx, ly - 7);
           ctx.fillText(
-            `${hex((depth + 1.5) * 20000)} / D ${depth.toFixed(4)}`,
+            n.sub
+              ? `${n.sub} / D ${depth.toFixed(4)}`
+              : `${hex((depth + 1.5) * 20000)} / D ${depth.toFixed(4)}`,
             tx,
             ly + 5,
           );
@@ -188,7 +230,13 @@ export function BrainField({
       ctx.textAlign = "left";
       ctx.fillText(`ROT.Y ${(((ry * 180) / Math.PI) % 360).toFixed(3)}`, 12, 16);
       ctx.fillText(`ROT.X ${((rx * 180) / Math.PI).toFixed(3)}`, 12, 28);
-      ctx.fillText(`VERT ${pad(POINTS.length, 6)}`, 12, 40);
+      ctx.fillText(
+        dataPoints?.length
+          ? `VERT ${pad(dataPoints.length, 6)} BOUND / ${pad(POINTS.length, 6)} SHELL`
+          : `VERT ${pad(POINTS.length, 6)}`,
+        12,
+        40,
+      );
       ctx.textAlign = "right";
       ctx.fillText(`FRM ${pad(frame, 6)}`, w - 12, 16);
       ctx.fillText(`SCALE ${scale.toFixed(2)}px/u`, w - 12, 28);
@@ -203,7 +251,7 @@ export function BrainField({
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [POINTS, annotations, spin, nodes]);
+  }, [POINTS, annotations, spin, nodes, dataPoints]);
 
   return (
     <div ref={wrapRef} className="relative h-full w-full">

@@ -5,7 +5,6 @@ import {
   DENSITY_BUDGETS,
   emptyDensity,
   VIZ_SOURCE_FAMILIES,
-  type SelfFacet,
   type VizDensity,
   type VizEdge,
   type VizPoint3,
@@ -15,8 +14,15 @@ import type { CortexStore } from "../store/index.js";
 import { rankConnectionCandidates, type CandidateMemory } from "../connection-candidates.js";
 import { auditSourceCoverage } from "../intrapersonal/source-health.js";
 import { runPriorityVsActual } from "../project-brief.js";
-import { FACET_CENTERS, jitterAround, projectEmbedding, seeded } from "./project-3d.js";
+import { jitterAround, projectEmbedding, seeded } from "./project-3d.js";
 import { loadVizProjectionSnapshot } from "./projection-job.js";
+import {
+  assignTopicFamilies,
+  classifyCalendarSummary,
+  FAMILY_BY_ID,
+  SCAN_FAMILIES,
+  type ScanFamilyId,
+} from "./topic-families.js";
 
 const POINT_CAP = 5200;
 const TEXT_PREVIEW = 120;
@@ -69,147 +75,276 @@ function shellMeta(
   };
 }
 
+const SCAN_OBSERVATION_LIMIT = 400;
+const SCAN_CALENDAR_DAYS = 120;
+/** Pull zone centres inward so jittered points stay inside the cortical hull. */
+const ZONE_INSET = 0.72;
+const SIDEBAR_TOPIC_ROWS = 13;
+
+function topicsOf(metadata: Record<string, unknown>): string[] {
+  const raw = metadata?.topics;
+  return Array.isArray(raw) ? raw.filter((t): t is string => typeof t === "string") : [];
+}
+
+/**
+ * Index 01 — the encephalon is a map of what the work is *about*.
+ *
+ * Observations supply the volume (one voxel each), the fixed family map supplies
+ * the lobes, and calendar events join as additional mass for the families that
+ * sessions under-represent (venture meetings, gallery openings, admin). Time is
+ * binned by session ordinal rather than wall clock: observations inherit their
+ * session timestamp, so the clock is three spikes while the ordinal is smooth.
+ */
 async function buildScan(store: CortexStore): Promise<VizDensity> {
   const rnd = seeded(4412219);
-  const [selfModel, interests, hyps, affect, diffs] = await Promise.all([
-    store.getLatestSelfModelVersion(),
-    store.listInterests({ limit: 80 }),
-    store.listHypotheses({ limit: 40 }),
-    store.listAffectSignals({ limit: 40 }),
-    store.listSelfModelDiffs({ limit: 1 }),
+  const calendarStart = new Date(
+    Date.now() - SCAN_CALENDAR_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const [observations, events] = await Promise.all([
+    store.listObservations({ limit: SCAN_OBSERVATION_LIMIT }),
+    store
+      .getCalendarStructure(calendarStart, new Date().toISOString())
+      .catch(() => []),
   ]);
 
-  const points: VizPoint3[] = [];
-  const pushFacet = (
-    facet: SelfFacet,
-    items: Array<{ statement?: string; confidence?: number; evidenceIds?: string[]; title?: string }>,
-  ) => {
-    for (const item of items) {
-      const c = FACET_CENTERS[facet];
-      const p = jitterAround(c, rnd, 0.4);
-      points.push({
-        ...p,
-        region: facet,
-        confidence: item.confidence ?? 0.5,
-        evidenceFamilies: item.evidenceIds?.length ?? 1,
-        a: 0.35 + (item.confidence ?? 0.5) * 0.6,
-        s: (item.confidence ?? 0.5) > 0.75 ? 1.6 : 1,
-        label: (item.title ?? item.statement ?? facet).slice(0, 24),
-      });
+  // Session-level topic sets drive both classification and the co-occurrence fallback.
+  const sessionTopics = new Map<string, string[]>();
+  for (const o of observations) {
+    const key = o.sessionId ?? o.distillateId ?? o.id;
+    if (!sessionTopics.has(key)) sessionTopics.set(key, topicsOf(o.metadata));
+  }
+  const { topicFamily, unclassifiedTopics } = assignTopicFamilies([...sessionTopics.values()]);
+
+  // Session ordinal = the scan's time axis.
+  const sessionOrder = [...sessionTopics.keys()].sort((a, b) => {
+    const ta = observations.find((o) => (o.sessionId ?? o.distillateId ?? o.id) === a)?.occurredAt ?? "";
+    const tb = observations.find((o) => (o.sessionId ?? o.distillateId ?? o.id) === b)?.occurredAt ?? "";
+    return ta.localeCompare(tb);
+  });
+  const ordinalOf = new Map(sessionOrder.map((id, i) => [id, i]));
+  const sessionSpan = Math.max(1, sessionOrder.length - 1);
+
+  const topicCounts = new Map<string, number>();
+  const familyCounts = new Map<ScanFamilyId, number>();
+  const familySessions = new Map<ScanFamilyId, Set<string>>();
+
+  for (const o of observations) {
+    for (const topic of topicsOf(o.metadata)) {
+      topicCounts.set(topic, (topicCounts.get(topic) ?? 0) + 1);
     }
+  }
+  const maxTopicCount = Math.max(1, ...topicCounts.values());
+
+  const familyOf = (o: (typeof observations)[number]): ScanFamilyId => {
+    const votes = new Map<ScanFamilyId, number>();
+    for (const topic of topicsOf(o.metadata)) {
+      const fam = topicFamily.get(topic);
+      if (fam) votes.set(fam, (votes.get(fam) ?? 0) + 1);
+    }
+    let best: ScanFamilyId = "broadcast";
+    let bestN = -1;
+    for (const [fam, n] of votes) {
+      if (n > bestN) {
+        best = fam;
+        bestN = n;
+      }
+    }
+    return best;
   };
 
-  if (selfModel) {
-    pushFacet("strengths", selfModel.strengths);
-    pushFacet("limitations", selfModel.limitations);
-    pushFacet("motives", selfModel.motives);
-    pushFacet("tensions", selfModel.tensions);
-    pushFacet("identity", selfModel.identityDevelopment);
-  }
+  const points: VizPoint3[] = [];
+  const seenSession = new Set<string>();
 
-  for (const interest of interests) {
-    const c = FACET_CENTERS.motives;
-    const p = jitterAround(c, rnd, 0.7);
+  for (const o of observations) {
+    const family = familyOf(o);
+    const meta = FAMILY_BY_ID.get(family)!;
+    const centre = {
+      x: meta.anchor.x * ZONE_INSET,
+      y: meta.anchor.y * ZONE_INSET,
+      z: meta.anchor.z * ZONE_INSET,
+    };
+    const p = jitterAround(centre, rnd, 0.34);
+    const topics = topicsOf(o.metadata);
+    const headline = topics[0] ?? family;
+    // Confidence is near-constant in the vault (0.60–0.65), so brightness comes
+    // from how often the topic recurs — that has real dynamic range.
+    const recurrence = (topicCounts.get(headline) ?? 1) / maxTopicCount;
+    const sessionKey = o.sessionId ?? o.distillateId ?? o.id;
+    const isSessionAnchor = !seenSession.has(sessionKey);
+    seenSession.add(sessionKey);
+
+    familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
+    if (!familySessions.has(family)) familySessions.set(family, new Set());
+    familySessions.get(family)!.add(sessionKey);
+
     points.push({
       ...p,
-      region: interest.class,
-      confidence: interest.confidence,
-      a: 0.3 + interest.recurrenceScore * 0.5,
-      label: interest.displayName.slice(0, 24),
-      id: interest.id,
+      id: o.id,
+      region: family,
+      label: headline.slice(0, 24).toUpperCase(),
+      confidence: o.confidence,
+      a: 0.28 + recurrence * 0.66,
+      s: isSessionAnchor ? 1.6 : 1,
+      t: (ordinalOf.get(sessionKey) ?? 0) / sessionSpan,
     });
   }
 
-  // Pad with projection snapshot points tagged by kind if sparse
-  if (points.length < 200) {
-    const snap = await loadVizProjectionSnapshot(store);
-    for (const p of (snap?.points ?? []).slice(0, 800)) {
-      points.push({
-        x: p.x * 0.5,
-        y: p.y * 0.5,
-        z: p.z * 0.5,
-        a: p.a,
-        region: "identity",
-        id: p.id,
-      });
+  // Calendar joins as mass for the families sessions under-represent.
+  const calendarByFamily = new Map<ScanFamilyId, number>();
+  for (const event of events) {
+    const family = classifyCalendarSummary(event.summary);
+    if (!family) continue;
+    const meta = FAMILY_BY_ID.get(family)!;
+    const centre = {
+      x: meta.anchor.x * ZONE_INSET,
+      y: meta.anchor.y * ZONE_INSET,
+      z: meta.anchor.z * ZONE_INSET,
+    };
+    const p = jitterAround(centre, rnd, 0.34);
+    calendarByFamily.set(family, (calendarByFamily.get(family) ?? 0) + 1);
+    familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
+    points.push({
+      ...p,
+      id: event.id,
+      region: family,
+      label: (event.summary ?? "EVENT").slice(0, 24).toUpperCase(),
+      a: 0.62,
+      s: 1.3,
+      t: 1,
+    });
+  }
+
+  const totalMass = Math.max(1, [...familyCounts.values()].reduce((s, n) => s + n, 0));
+
+  // Annotations sit at the anatomical anchors in the client's brainNodes order.
+  const annotations: VizDensity["annotations"] = [];
+  const hotTopic = [...topicCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+  const slots: Array<{ label: string; sub: string; anchor: { x: number; y: number; z: number } }> =
+    [];
+  for (let i = 0; i < DENSITY_BUDGETS.scan.annotations; i++) {
+    const family = SCAN_FAMILIES.find((f) => f.anchorIndex === i);
+    if (family) {
+      const n = familyCounts.get(family.id) ?? 0;
+      const share = ((n / totalMass) * 100).toFixed(1);
+      slots[i] = {
+        label: family.label,
+        sub: `${family.gloss} N=${n} ${share}%`,
+        anchor: family.anchor,
+      };
+    } else {
+      slots[i] = {
+        label: (hotTopic?.[0] ?? "CORTEX").slice(0, 24).toUpperCase(),
+        sub: `HOT TOPIC N=${hotTopic?.[1] ?? 0}`,
+        anchor: { x: -0.86, y: -0.5, z: 0.24 },
+      };
     }
   }
-
-  const hotHyps = hyps
-    .filter((h) => h.state !== "retired")
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, 8);
-
-  const annotations: Array<{ id: string; label: string; x: number; y: number; z: number }> =
-    hotHyps.map((h, i) => {
-      const facet: SelfFacet =
-        h.domains.includes("tension") || h.domains.includes("avoidance")
-          ? "tensions"
-          : h.domains.includes("motive")
-            ? "motives"
-            : "identity";
-      const c = FACET_CENTERS[facet];
-      return {
-        id: `N${String(i + 1).padStart(2, "0")}`,
-        label: h.claim.slice(0, 24),
-        x: c.x,
-        y: c.y,
-        z: c.z,
-      };
-    });
-  // Pad to anatomical annotation budget so client overlays stay dense
-  while (annotations.length < DENSITY_BUDGETS.scan.annotations) {
-    const i = annotations.length;
-    const facet = (["strengths", "limitations", "motives", "tensions", "identity"] as SelfFacet[])[
-      i % 5
-    ]!;
-    const c = FACET_CENTERS[facet];
+  slots.forEach((slot, i) => {
     annotations.push({
       id: `N${String(i + 1).padStart(2, "0")}`,
-      label: facet.toUpperCase().slice(0, 24),
-      x: c.x,
-      y: c.y,
-      z: c.z,
+      label: slot.label,
+      sub: slot.sub,
+      x: slot.anchor.x,
+      y: slot.anchor.y,
+      z: slot.anchor.z,
     });
-  }
+  });
 
-  const energy = affect.filter((a) => a.signalType === "energy");
-  const valence = affect.filter((a) => a.signalType === "valence");
-  const friction = affect.filter((a) => a.signalType === "friction");
-  const flow = affect.filter((a) => a.signalType === "flow");
-  const avg = (rows: typeof affect) =>
-    rows.length ? rows.reduce((s, r) => s + r.value, 0) / rows.length : 0.5;
-
-  const diff = diffs[0];
-  const slices = Array.from({ length: 32 }, (_, i) => ({
-    pos: 1.15 - (i / 31) * 2.3,
-    region: diff
-      ? i % 3 === 0
-        ? "emerging"
-        : i % 3 === 1
-          ? "fading"
-          : "stable"
-      : undefined,
+  // Sidebar: five family rows (share of mass), then the top topics by count.
+  const meters = SCAN_FAMILIES.map((f, i) => ({
+    id: String(i + 1).padStart(2, "0"),
+    label: f.label,
+    value: (familyCounts.get(f.id) ?? 0) / totalMass,
   }));
+  const topTopics = [...topicCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, SIDEBAR_TOPIC_ROWS);
+  topTopics.forEach(([topic, n], i) => {
+    meters.push({
+      id: String(SCAN_FAMILIES.length + i + 1).padStart(2, "0"),
+      label: topic.slice(0, 28).toUpperCase(),
+      value: n / maxTopicCount,
+    });
+  });
+
+  // Section matrix: 32 slabs across the session sequence.
+  const sliceCount = DENSITY_BUDGETS.scan.slices;
+  const slices = Array.from({ length: sliceCount }, (_, i) => {
+    const lo = i / sliceCount;
+    const hi = (i + 1) / sliceCount;
+    const pointIndexes: number[] = [];
+    const votes = new Map<ScanFamilyId, number>();
+    points.forEach((p, idx) => {
+      const t = p.t ?? 0;
+      if (t >= lo && (t < hi || (i === sliceCount - 1 && t <= hi))) {
+        pointIndexes.push(idx);
+        const fam = p.region as ScanFamilyId;
+        votes.set(fam, (votes.get(fam) ?? 0) + 1);
+      }
+    });
+    let region: string | undefined;
+    let bestN = 0;
+    for (const [fam, n] of votes) {
+      if (n > bestN) {
+        region = fam;
+        bestN = n;
+      }
+    }
+    return {
+      pos: 1.15 - (i / (sliceCount - 1)) * 2.3,
+      region,
+      pointIndexes,
+      count: pointIndexes.length,
+      label: `S${String(i + 1).padStart(3, "0")}`,
+    };
+  });
+
+  const windowStart = observations.reduce<string | null>(
+    (min, o) => (o.occurredAt && (!min || o.occurredAt < min) ? o.occurredAt : min),
+    null,
+  );
+  const windowEnd = observations.reduce<string | null>(
+    (max, o) => (o.occurredAt && (!max || o.occurredAt > max) ? o.occurredAt : max),
+    null,
+  );
+  const windowDays =
+    windowStart && windowEnd
+      ? Math.max(
+          1,
+          Math.round(
+            (Date.parse(windowEnd) - Date.parse(windowStart)) / (24 * 60 * 60 * 1000),
+          ),
+        )
+      : 0;
 
   return {
     view: "scan",
     generatedAt: new Date().toISOString(),
     points: points.slice(0, POINT_CAP),
     annotations,
-    meters: [
-      { id: "01", label: "ENERGY", value: Math.min(1, Math.max(0, avg(energy))) },
-      { id: "02", label: "VALENCE", value: Math.min(1, Math.max(0, avg(valence))) },
-      { id: "03", label: "FRICTION", value: Math.min(1, Math.max(0, avg(friction))) },
-      { id: "04", label: "FLOW", value: Math.min(1, Math.max(0, avg(flow))) },
-      { id: "05", label: "INTERESTS", value: Math.min(1, interests.length / 40) },
-      { id: "06", label: "HYPS", value: Math.min(1, hyps.length / 40) },
-    ],
+    meters,
     slices,
     meta: shellMeta("scan", {
-      empty: points.length === 0 && annotations.length === 0,
-      selfModelVersion: selfModel?.version ?? null,
-      overlayAnnotations: annotations.length,
+      empty: points.length === 0,
+      observationCount: observations.length,
+      calendarCount: [...calendarByFamily.values()].reduce((s, n) => s + n, 0),
+      sessionCount: sessionOrder.length,
+      windowDays,
+      windowStart,
+      windowEnd,
+      families: SCAN_FAMILIES.map((f) => ({
+        id: f.id,
+        label: f.label,
+        short: f.short,
+        gloss: f.gloss,
+        count: familyCounts.get(f.id) ?? 0,
+        sessions: familySessions.get(f.id)?.size ?? 0,
+        share: (familyCounts.get(f.id) ?? 0) / totalMass,
+      })),
+      topicCount: topicCounts.size,
+      unclassifiedTopics: unclassifiedTopics.length,
+      hotTopic: hotTopic?.[0] ?? null,
+      timeAxis: "session_ordinal",
     }),
   };
 }

@@ -7,7 +7,14 @@ import { IndexColumn } from "@/components/dataverse/IndexColumn";
 import { NumericMatrix } from "@/components/dataverse/NumericMatrix";
 import { SourceStrip } from "@/components/dataverse/SourceStrip";
 import { useDensity } from "@/hooks/use-density";
-import { brainOverlays, panelMeters, sourceLabel } from "@/lib/overlays";
+import {
+  brainDataPoints,
+  brainOverlays,
+  panelMeters,
+  scanReadouts,
+  scanSliceOverlays,
+  sourceLabel,
+} from "@/lib/overlays";
 
 const title = "scan / encephalon — data-verse 02";
 const description =
@@ -33,6 +40,9 @@ function ScanPage() {
   const { data, degraded } = useDensity("scan");
   const nodes = useMemo(() => brainOverlays(data), [data]);
   const meters = useMemo(() => panelMeters(data), [data]);
+  const dataPoints = useMemo(() => brainDataPoints(data), [data]);
+  const sliceOverlays = useMemo(() => scanSliceOverlays(data), [data]);
+  const readouts = useMemo(() => scanReadouts(data), [data]);
 
   return (
     <DvFrame title="scan / encephalon volumetric dataset">
@@ -40,7 +50,7 @@ function ScanPage() {
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)]">
         <div className="hidden min-h-0 overflow-hidden md:flex md:flex-col md:border-r md:border-dv-line">
           <div className="min-h-0 flex-1 overflow-hidden">
-            <IndexColumn title="INDEX / SELF" meters={meters} />
+            <IndexColumn title={readouts.sidebarTitle} meters={meters} />
           </div>
           <NumericMatrix title="MATRIX / SCAN" seed={9131} rows={4} />
         </div>
@@ -48,17 +58,21 @@ function ScanPage() {
         <section className="flex min-h-0 flex-col overflow-hidden">
           <div className="dv-micro flex items-center justify-between border-b border-dv-hair px-3 py-2 text-dv-faint">
             <span>VOLUME FIELD / ENCEPHALON</span>
-            <span className="hidden sm:inline">PROJECTION PERSPECTIVE / ORTHO REF</span>
+            <span className="hidden truncate sm:inline">{readouts.split}</span>
           </div>
           <div className="min-h-0 flex-[3]">
-            <BrainField nodeOverlays={nodes} />
+            <BrainField
+              nodeOverlays={nodes}
+              dataPoints={dataPoints}
+              caption={readouts.caption}
+            />
           </div>
           <div className="dv-micro flex items-center justify-between border-y border-dv-hair px-3 py-2 text-dv-faint">
-            <span>SECTION MATRIX / SAGITTAL SERIES</span>
-            <span className="hidden sm:inline">SLAB 0.150 U / STEP 0.074 U</span>
+            <span>SECTION MATRIX / SESSION SERIES</span>
+            <span className="hidden sm:inline">{readouts.slab}</span>
           </div>
           <div className="min-h-0 flex-[2]">
-            <ScanSlices />
+            <ScanSlices overlays={sliceOverlays} />
           </div>
         </section>
       </div>

@@ -3,24 +3,46 @@ import { brainCloud } from "@/lib/dataverse-brain";
 import { useDataCanvas } from "@/lib/dataverse-canvas";
 import { pad } from "@/lib/dataverse-data";
 
-type Slice = { pos: number; pts: Array<[number, number]> };
+type Slice = {
+  pos: number;
+  pts: Array<[number, number]>;
+  label?: string | undefined;
+  count?: number | undefined;
+};
 
-function buildSlices(n: number): Slice[] {
+/** Server-supplied slab metadata — geometry still comes from the shell. */
+export type ScanSliceOverlay = {
+  pos: number;
+  label?: string | undefined;
+  count?: number | undefined;
+  region?: string | undefined;
+};
+
+function buildSlices(n: number, overlays?: ScanSliceOverlay[]): Slice[] {
   const cloud = brainCloud(9000);
   const out: Slice[] = [];
   for (let i = 0; i < n; i++) {
-    const pos = 1.15 - (i / (n - 1)) * 2.3;
+    const overlay = overlays?.[i];
+    const pos = overlay?.pos ?? 1.15 - (i / (n - 1)) * 2.3;
     const pts: Array<[number, number]> = [];
     for (const p of cloud) {
       if (Math.abs(p.x - pos) < 0.075) pts.push([p.z, p.y]);
     }
-    out.push({ pos, pts });
+    out.push({ pos, pts, label: overlay?.label, count: overlay?.count });
   }
   return out;
 }
 
-export function ScanSlices({ cols = 8, rows = 4 }: { cols?: number; rows?: number }) {
-  const slices = useMemo(() => buildSlices(cols * rows), [cols, rows]);
+export function ScanSlices({
+  cols = 8,
+  rows = 4,
+  overlays,
+}: {
+  cols?: number | undefined;
+  rows?: number | undefined;
+  overlays?: ScanSliceOverlay[] | undefined;
+}) {
+  const slices = useMemo(() => buildSlices(cols * rows, overlays), [cols, rows, overlays]);
 
   const { wrapRef, canvasRef } = useDataCanvas(({ ctx, w, h, t, fg }) => {
     const cw = w / cols;
@@ -52,9 +74,13 @@ export function ScanSlices({ cols = 8, rows = 4 }: { cols?: number; rows?: numbe
 
       ctx.globalAlpha = isActive ? 0.9 : 0.35;
       ctx.textAlign = "left";
-      ctx.fillText(`S${pad(i + 1, 3)}`, x0 + 6, y0 + 10);
+      ctx.fillText(s.label ?? `S${pad(i + 1, 3)}`, x0 + 6, y0 + 10);
       ctx.textAlign = "right";
-      ctx.fillText(`X ${s.pos.toFixed(3)}`, x0 + cw - 6, y0 + ch - 9);
+      ctx.fillText(
+        s.count === undefined ? `X ${s.pos.toFixed(3)}` : `N ${pad(s.count, 3)}`,
+        x0 + cw - 6,
+        y0 + ch - 9,
+      );
 
       if (isActive) {
         ctx.globalAlpha = 0.5;

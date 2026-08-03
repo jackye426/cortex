@@ -67,7 +67,7 @@ async function buildMirror(
 ): Promise<VizLedger> {
   const latest = await getLatestWeeklyMirror(store);
   const cards = (latest.mirror?.cards ?? []).slice(0, 5);
-  const rows: VizLedgerRow[] = cards.map((c, i) => ({
+  const rows: VizLedgerRow[] = cards.map((c) => ({
     id: c.id,
     channel: "mirror",
     title: `${(c.theme ?? "insight").toUpperCase()} / ${c.notice.slice(0, 40)}`,
