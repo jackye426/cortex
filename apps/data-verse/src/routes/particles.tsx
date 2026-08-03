@@ -8,7 +8,6 @@ import { useDensity } from "@/hooks/use-density";
 import {
   orbitOverlays,
   panelMeters,
-  particleDataPoints,
   particleLabelTexts,
   particleReadouts,
   sourceLabel,
@@ -39,7 +38,6 @@ function ParticlePage() {
   const labels = useMemo(() => particleLabelTexts(data), [data]);
   const meters = useMemo(() => panelMeters(data), [data]);
   const orbits = useMemo(() => orbitOverlays(data), [data]);
-  const dataPoints = useMemo(() => particleDataPoints(data), [data]);
   const readouts = useMemo(() => particleReadouts(data), [data]);
 
   return (
@@ -52,12 +50,17 @@ function ParticlePage() {
             <span className="hidden truncate sm:inline">{readouts.basis}</span>
           </div>
           <div className="min-h-0 flex-1">
+            {/*
+              No dataPoints here on purpose. Embedded records were drawn as
+              bright unlabelled squares, and semantic position is not readable
+              in a rotating cloud — they added weight without meaning. This
+              index carries its data in the orbits.
+            */}
             <ParticleField
               count={5200}
               orbits={22}
               labelTexts={labels}
               orbitOverlays={orbits}
-              dataPoints={dataPoints}
             />
           </div>
           <div className="dv-micro grid grid-cols-2 gap-x-6 gap-y-1 border-t border-dv-hair px-3 py-2 tabular-nums text-dv-faint xl:grid-cols-4">
