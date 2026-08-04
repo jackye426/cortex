@@ -50,7 +50,7 @@ function StreamsPage() {
           <div className="dv-micro grid grid-cols-2 gap-x-6 gap-y-1 border-t border-dv-hair px-3 py-2 tabular-nums text-dv-faint xl:grid-cols-4">
             <span>CHANNELS 180</span>
             <span>GLYPHS 1.62E5</span>
-            <span>RATE 14-134 CH/S</span>
+            <span>RATE 5-43 CH/S</span>
             <span>INVERSION SPARSE</span>
           </div>
         </section>

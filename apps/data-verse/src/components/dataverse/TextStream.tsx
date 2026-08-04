@@ -51,7 +51,9 @@ function build(rows: number, cols: number, seedTexts?: string[]) {
     }
     out.push({
       text,
-      speed: (rnd() < 0.5 ? -1 : 1) * (14 + rnd() * 120),
+      // Characters per second. Kept slow enough that a phrase stays readable
+      // as it crosses rather than smearing into texture.
+      speed: (rnd() < 0.5 ? -1 : 1) * (5 + rnd() * 38),
       phase: rnd() * cols,
       alpha: 0.22 + rnd() * 0.78,
       invert,
@@ -74,14 +76,17 @@ export function TextStream({
   const rows = useMemo(() => build(180, cols, seedTexts), [cols, seedTexts]);
 
   const { wrapRef, canvasRef } = useDataCanvas(({ ctx, w, h, t, fg, accent }) => {
-    const rowH = 7;
-    const fontPx = 8;
+    const rowH = 11;
+    const fontPx = 12;
     ctx.font = `${fontPx}px ui-monospace, 'JetBrains Mono', monospace`;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     const charW = ctx.measureText("0").width || fontPx * 0.6;
     const visible = Math.ceil(w / charW) + 2;
     const count = Math.min(rows.length, Math.ceil(h / rowH) + 1);
+    // A single accent line that steps down the wall rather than a fixed set of
+    // permanently-red rows — the same scanning idiom as the section matrix.
+    const accentRow = count > 0 ? Math.floor(t * 0.7) % count : -1;
 
     for (let r = 0; r < count; r++) {
       const row = rows[r]!;
@@ -110,8 +115,8 @@ export function TextStream({
         ctx.fillText(s.slice(x0, x0 + len), x0 * charW, y);
       }
 
-      if (row.accent > 0.985) {
-        ctx.globalAlpha = 0.85;
+      if (r === accentRow) {
+        ctx.globalAlpha = 0.9;
         ctx.fillStyle = accent;
         ctx.fillText(s, 0, y);
       }
