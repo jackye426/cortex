@@ -4,14 +4,11 @@
 import {
   DENSITY_BUDGETS,
   emptyDensity,
-  VIZ_SOURCE_FAMILIES,
   type VizDensity,
-  type VizEdge,
   type VizPoint3,
   type VizView,
 } from "@cortex/viz-contracts";
 import type { CortexStore } from "../store/index.js";
-import { rankConnectionCandidates, type CandidateMemory } from "../connection-candidates.js";
 import { auditSourceCoverage } from "../intrapersonal/source-health.js";
 import { jitterAround, normalizeCloud, projectEmbedding, seeded } from "./project-3d.js";
 import {
@@ -553,153 +550,103 @@ async function buildParticle(store: CortexStore): Promise<VizDensity> {
   };
 }
 
-async function buildCross(store: CortexStore): Promise<VizDensity> {
-  const coverage = await auditSourceCoverage(store);
-  const entities = await store.listEntities(undefined, 60);
-  const distillates = await store.listDistillates({ limit: 120 });
+/** Independent source families backing a theme — the corroboration unit. */
+const CROSS_OBSERVATION_LIMIT = 400;
+const CROSS_THEME_ROWS = 18;
 
-  const rnd = seeded(313377);
-  const familySet = new Set<string>([
-    ...VIZ_SOURCE_FAMILIES,
-    ...coverage.sources.map((s) => s.sourceFamily),
+/**
+ * Index 03 — how much of what Cortex believes rests on more than one source.
+ *
+ * 01 says where cognition sits, 02 says what returns. This says whether any of
+ * it can be trusted: a theme carried by AI sessions alone is a single narrator,
+ * one that also appears in email, calendar or GitHub is corroborated.
+ *
+ * The shell draws the same filament web mirrored top and bottom, so the two
+ * halves take the corroborated and single-source weights. A lopsided mirror is
+ * the honest picture of a vault that has only ever heard one voice.
+ */
+async function buildCross(store: CortexStore): Promise<VizDensity> {
+  const [observations, coverage] = await Promise.all([
+    store.listObservations({ limit: CROSS_OBSERVATION_LIMIT }),
+    auditSourceCoverage(store),
   ]);
-  const families = [...familySet].slice(0, 12);
-  const cores = families.map((label) => ({
+
+  const themeFamilies = new Map<string, Set<string>>();
+  const familyObservations = new Map<string, number>();
+  for (const o of observations) {
+    const family = o.sourceFamily || "other";
+    familyObservations.set(family, (familyObservations.get(family) ?? 0) + 1);
+    for (const topic of topicsOf(o.metadata)) {
+      if (!themeFamilies.has(topic)) themeFamilies.set(topic, new Set());
+      themeFamilies.get(topic)!.add(family);
+    }
+  }
+
+  const themes = [...themeFamilies.entries()]
+    .map(([theme, families]) => ({ theme, families: [...families] }))
+    .sort(
+      (a, b) =>
+        b.families.length - a.families.length || a.theme.localeCompare(b.theme),
+    );
+  const corroborated = themes.filter((t) => t.families.length >= 2);
+  const singleSource = themes.length - corroborated.length;
+  const corroborationRate = themes.length ? corroborated.length / themes.length : 0;
+
+  // Channel bars per *family*, not per sourceId: the five AI session ids all
+  // map to one family and were rendering as five identical saturated bars.
+  const totalObs = Math.max(1, observations.length);
+  const channelBars = [...familyObservations.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([family, n], i) => ({
+      id: String(i + 1).padStart(2, "0"),
+      label: family,
+      value: n / totalObs,
+    }));
+
+  const cores = [...familyObservations.keys()].slice(0, 12).map((label) => ({
     id: label,
     label,
-    x: (rnd() - 0.5) * 1.7,
-    y: (rnd() - 0.5) * 0.9,
-    z: (rnd() - 0.5) * 1.2,
+    x: 0,
+    y: 0,
+    z: 0,
   }));
 
-  const points: VizPoint3[] = [];
-  const edges: VizEdge[] = [];
-  const coreIndex = new Map(cores.map((c, i) => [c.id, i]));
-
-  // Seed core nodes
-  for (const c of cores) {
-    points.push({ x: c.x, y: c.y, z: c.z, a: 0.95, id: c.id, label: c.label, s: 1.8 });
-  }
-
-  const candidates: CandidateMemory[] = distillates.slice(0, 80).map((d) => ({
-    id: d.id,
-    kind: d.kind,
-    sourceType: String(d.metadata?.sourceFamily ?? d.kind.split("_")[0] ?? "other"),
-    content: (d.content ?? "").slice(0, 200),
-    topics: Array.isArray(d.metadata?.topics) ? (d.metadata.topics as string[]) : [],
-    projects: Array.isArray(d.metadata?.projects) ? (d.metadata.projects as string[]) : [],
-    occurredAt: d.createdAt,
-    embedding: d.embedding ?? null,
-  }));
-
-  const ranked = rankConnectionCandidates(candidates, { limit: 40, requireCrossSource: true });
-  for (const pair of ranked) {
-    const pa = projectEmbedding(
-      pair.a.embedding ??
-        Array.from({ length: 16 }, (_, i) => (pair.a.id.charCodeAt(i % pair.a.id.length) / 128) - 0.5),
-    );
-    const pb = projectEmbedding(
-      pair.b.embedding ??
-        Array.from({ length: 16 }, (_, i) => (pair.b.id.charCodeAt(i % pair.b.id.length) / 128) - 0.5),
-      99,
-    );
-    const ia = points.length;
-    points.push({ ...pa, a: 0.5 + pair.score * 0.4, id: pair.a.id });
-    const ib = points.length;
-    points.push({ ...pb, a: 0.5 + pair.score * 0.4, id: pair.b.id });
-    edges.push({ a: ia, b: ib, weight: pair.score, polarity: "supports" });
-  }
-
-  // Entity links
-  for (const ent of entities.slice(0, 30)) {
-    const links = await store.listEntityLinks(ent.id);
-    for (const link of links.slice(0, 5)) {
-      const from = points.findIndex((p) => p.id === ent.id || p.label === ent.canonicalKey);
-      const ia =
-        from >= 0
-          ? from
-          : (() => {
-              const p = jitterAround(cores[0] ?? { x: 0, y: 0, z: 0 }, rnd, 0.8);
-              const idx = points.length;
-              points.push({
-                ...p,
-                id: ent.id,
-                label: ent.canonicalKey.slice(0, 24),
-                a: 0.7,
-              });
-              return idx;
-            })();
-      const ib = points.length;
-      points.push({
-        x: (rnd() - 0.5) * 1.4,
-        y: (rnd() - 0.5) * 0.8,
-        z: (rnd() - 0.5) * 1.0,
-        a: 0.45,
-        id: link.id,
-      });
-      edges.push({ a: ia, b: ib, weight: 0.4, polarity: "neutral" });
-    }
-  }
-
-  // Dendritic walks from cores for visual density
-  for (let s = 0; s < Math.min(24, cores.length * 3); s++) {
-    const c = cores[s % cores.length]!;
-    let x = c.x;
-    let y = c.y;
-    let z = c.z;
-    let prev = coreIndex.get(c.id) ?? 0;
-    for (let i = 0; i < 12; i++) {
-      x += (rnd() - 0.5) * 0.08;
-      y += (rnd() - 0.5) * 0.06;
-      z += (rnd() - 0.5) * 0.08;
-      const idx = points.length;
-      points.push({ x, y, z, a: 0.35 + rnd() * 0.4 });
-      edges.push({ a: prev, b: idx, weight: 0.3 + rnd() * 0.4, polarity: "supports" });
-      prev = idx;
-    }
-  }
-
-  const channelBars = coverage.sources.slice(0, 12).map((s, i) => ({
-    id: String(i + 1).padStart(2, "0"),
-    label: s.sourceFamily,
-    value: Math.min(1, Math.max(s.drowningRisk, s.recordCount7d / 200, s.embedCoverage)),
-  }));
-
-  // Ensure ≥6 cortex-labelled bars
-  if (channelBars.length < 6) {
-    for (const fam of VIZ_SOURCE_FAMILIES) {
-      if (channelBars.length >= 8) break;
-      if (!channelBars.some((b) => b.label === fam)) {
-        channelBars.push({
-          id: String(channelBars.length + 1).padStart(2, "0"),
-          label: fam,
-          value: 0.05,
-        });
-      }
-    }
-  }
+  const drown = Math.max(0, ...coverage.sources.map((s) => s.drowningRisk));
 
   return {
     view: "cross",
     generatedAt: new Date().toISOString(),
-    points: points.slice(0, POINT_CAP),
-    edges,
+    // The shell owns this topology; nothing here is drawn as points.
+    points: [],
+    edges: [],
     cores,
     channelBars,
     meters: [
-      { id: "01", label: "CROSS", value: Math.min(1, ranked.length / 20) },
-      { id: "02", label: "DROWN", value: Math.min(1, Math.max(...coverage.sources.map((s) => s.drowningRisk), 0)) },
-      { id: "03", label: "REFL", value: coverage.reflectiveShare },
-      { id: "04", label: "OPS", value: coverage.operationalShare },
+      { id: "01", label: "CORROB", value: corroborationRate },
+      { id: "02", label: "SINGLE", value: themes.length ? singleSource / themes.length : 0 },
+      { id: "03", label: "FAMILIES", value: Math.min(1, familyObservations.size / 11) },
+      { id: "04", label: "DROWN", value: Math.min(1, drown) },
     ],
     meta: shellMeta("cross", {
-      empty: points.length === 0 && channelBars.length === 0,
-      entityCount: entities.length,
-      overlayChannels: channelBars.length,
+      empty: themes.length === 0,
+      observationCount: observations.length,
+      themeCount: themes.length,
+      corroboratedCount: corroborated.length,
+      singleSourceCount: singleSource,
+      corroborationRate,
+      familyCount: familyObservations.size,
+      reflectiveShare: coverage.reflectiveShare,
+      drowningRisk: drown,
+      // Right-column readout: what is actually backed by more than one voice.
+      themes: themes.slice(0, CROSS_THEME_ROWS).map((t) => ({
+        theme: t.theme,
+        families: t.families.length,
+        familyNames: t.families,
+      })),
     }),
   };
 }
-
 async function buildText(store: CortexStore): Promise<VizDensity> {
   const [recent, observations, distillates] = await Promise.all([
     store.listRecentWork({ limit: 40 }),

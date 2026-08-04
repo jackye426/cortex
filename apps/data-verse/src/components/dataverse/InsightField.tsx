@@ -82,12 +82,22 @@ export function InsightField({
   nodeCount = 4600,
   channels,
   halfLabels = { top: "OPS", bottom: "REFL" },
+  halfWeights,
 }: {
   nodeCount?: number | undefined;
   /** Cortex source-family bars — labels/values only; topology stays generative. */
   channels?: ChannelOverlay[] | undefined;
   halfLabels?: { top: string; bottom: string } | undefined;
+  /**
+   * Relative brightness of the mirrored halves, 0–1. The topology is identical
+   * top and bottom, so this is the only channel that can carry a ratio — and a
+   * lopsided mirror states the ratio without needing a number read.
+   */
+  halfWeights?: { top: number; bottom: number } | undefined;
 }) {
+  // Floor keeps a weak half legible as structure rather than blacking it out.
+  const topWeight = Math.max(0.18, Math.min(1, halfWeights?.top ?? 1));
+  const bottomWeight = Math.max(0.18, Math.min(1, halfWeights?.bottom ?? 1));
   const { nodes, edges } = useMemo(() => build(nodeCount), [nodeCount]);
   const platforms = useMemo(() => {
     if (!channels?.length) {
@@ -130,6 +140,10 @@ export function InsightField({
 
     for (const sign of [-1, 1] as const) {
       const oy = cy + sign * gap;
+      // The two halves are the same web drawn twice. Weighting them separately
+      // is what makes the mirror carry meaning: a dim upper half against a
+      // bright lower one reads as "almost nothing here is corroborated".
+      const halfWeight = sign === -1 ? topWeight : bottomWeight;
 
       // filaments
       ctx.lineWidth = 1;
@@ -138,7 +152,7 @@ export function InsightField({
         const pb = proj[b * 3 + 2]!;
         const depth = (pa + pb) / 2;
         const heat = (depth - 0.72) * 1.55 * wgt;
-        ctx.strokeStyle = hot(heat, 0.1 + wgt * 0.18 * depth);
+        ctx.strokeStyle = hot(heat, (0.1 + wgt * 0.18 * depth) * halfWeight);
         ctx.beginPath();
         ctx.moveTo(cx + proj[a * 3]!, oy + sign * (proj[a * 3 + 1]! + scale * 0.42));
         ctx.lineTo(cx + proj[b * 3]!, oy + sign * (proj[b * 3 + 1]! + scale * 0.42));
@@ -154,10 +168,10 @@ export function InsightField({
         if (x < -20 || x > w + 20 || y < -20 || y > h + 20) continue;
         const heat = (p - 0.7) * 1.7 + n.m * 0.5;
         const s = n.m > 0.85 ? 1.8 * p : 1 * p;
-        ctx.fillStyle = hot(heat, 0.25 + n.m * 0.6);
+        ctx.fillStyle = hot(heat, (0.25 + n.m * 0.6) * halfWeight);
         ctx.fillRect(x, y, s, s);
         if (n.m > 0.93) {
-          ctx.fillStyle = hot(heat + 0.5, 0.16);
+          ctx.fillStyle = hot(heat + 0.5, 0.16 * halfWeight);
           ctx.fillRect(x - 2, y - 2, s + 4, s + 4);
         }
       }

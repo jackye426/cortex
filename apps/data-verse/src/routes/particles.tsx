@@ -64,11 +64,13 @@ function ParticlePage() {
             <span>SPATIAL FIELD / ORBITAL TRAJECTORIES</span>
             <span className="hidden truncate sm:inline">{readouts.basis}</span>
           </div>
-          <div
-            className={`dv-anim min-h-0 flex-1 transition-opacity duration-500 ${
-              loading ? "opacity-40" : "opacity-100"
-            }`}
-          >
+          {/*
+            No opacity transition on this wrapper: animating opacity over a
+            canvas promotes it to its own compositing layer and the field
+            renders dim or not at all. Overlay gating below is what actually
+            fixes the fixture-then-live flash.
+          */}
+          <div className="min-h-0 flex-1">
             {/*
               No dataPoints here on purpose. Embedded records were drawn as
               bright unlabelled squares, and semantic position is not readable

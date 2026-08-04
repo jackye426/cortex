@@ -158,6 +158,55 @@ export function particleReadouts(d: VizDensity): {
   };
 }
 
+/** Index 03 — corroboration split, theme rows and chrome. */
+export function crossReadouts(d: VizDensity): {
+  halfWeights: { top: number; bottom: number };
+  halfLabels: { top: string; bottom: string };
+  themes: VizMeter[] | undefined;
+  cells: string[];
+} {
+  const meta: Record<string, unknown> = d.meta ?? {};
+  const num = (key: string): number => {
+    const v = meta[key];
+    return typeof v === "number" ? v : 0;
+  };
+  const corroborated = num("corroboratedCount");
+  const single = num("singleSourceCount");
+  const themeCount = num("themeCount");
+  const families = num("familyCount");
+  const rate = num("corroborationRate");
+
+  const rows = Array.isArray(meta["themes"])
+    ? (meta["themes"] as Array<{ theme?: string; families?: number }>)
+    : [];
+
+  return {
+    // Brightness is the ratio itself, so the mirror tilts toward whichever
+    // side the evidence actually sits on.
+    halfWeights: {
+      top: themeCount ? corroborated / themeCount : 0,
+      bottom: themeCount ? single / themeCount : 1,
+    },
+    halfLabels: {
+      top: `CORROB ${corroborated}`,
+      bottom: `SINGLE ${single}`,
+    },
+    themes: rows.length
+      ? rows.map((r, i) => ({
+          id: String(i + 1).padStart(2, "0"),
+          label: (r.theme ?? "").slice(0, 26).toUpperCase(),
+          value: r.families ?? 0,
+        }))
+      : undefined,
+    cells: [
+      `THEMES ${themeCount}`,
+      `FAMILIES ${families}`,
+      `CORROB ${(rate * 100).toFixed(1)}%`,
+      `DROWN ${num("drowningRisk").toFixed(3)}`,
+    ],
+  };
+}
+
 export function crossChannels(d: VizDensity): ChannelOverlay[] | undefined {
   if (!d.channelBars?.length) return undefined;
   return d.channelBars.map((b) => ({ label: b.label, value: b.value }));

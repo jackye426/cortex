@@ -77,11 +77,8 @@ function ScanPage() {
             <span>VOLUME FIELD / ENCEPHALON</span>
             <span className="hidden truncate sm:inline">{readouts.split}</span>
           </div>
-          <div
-            className={`dv-anim min-h-0 flex-[3] transition-opacity duration-500 ${
-              loading ? "opacity-40" : "opacity-100"
-            }`}
-          >
+          {/* No opacity transition here — it dims/blanks the canvas layer. */}
+          <div className="min-h-0 flex-[3]">
             <BrainField
               nodeOverlays={nodes}
               dataPoints={dataPoints}
