@@ -7,6 +7,7 @@
 import { loadDotEnv } from "./env.js";
 import { createStore } from "./store/index.js";
 import { runSourceAdapter, SOURCE_ADAPTERS } from "./source-adapters.js";
+import { isoWeekKey } from "./week-helpers.js";
 
 loadDotEnv();
 
@@ -17,6 +18,7 @@ function parseArgs(argv: string[]): {
   adapter?: string;
   limit: number;
   weekKey?: string;
+  weeks: number;
 } {
   let list = false;
   let dryRun = false;
@@ -24,18 +26,22 @@ function parseArgs(argv: string[]): {
   let adapter: string | undefined;
   let limit = 40;
   let weekKey: string | undefined;
+  let weeks = 1;
   for (const arg of argv) {
     if (arg === "--list") list = true;
     else if (arg === "--dry-run") dryRun = true;
     else if (arg === "--force") force = true;
     else if (arg.startsWith("--adapter=")) adapter = arg.slice("--adapter=".length);
     else if (arg.startsWith("--week=")) weekKey = arg.slice("--week=".length);
-    else if (arg.startsWith("--limit=")) {
+    else if (arg.startsWith("--weeks=")) {
+      const n = Number(arg.slice("--weeks=".length));
+      if (Number.isFinite(n) && n > 0) weeks = Math.min(Math.floor(n), 52);
+    } else if (arg.startsWith("--limit=")) {
       const n = Number(arg.slice("--limit=".length));
       if (Number.isFinite(n) && n > 0) limit = Math.floor(n);
     }
   }
-  return { list, dryRun, force, adapter, limit, weekKey };
+  return { list, dryRun, force, adapter, limit, weekKey, weeks };
 }
 
 async function main(): Promise<void> {
@@ -61,6 +67,32 @@ async function main(): Promise<void> {
   console.info(
     `[source-adapter] adapter=${args.adapter} store=${store.mode} dryRun=${args.dryRun}`,
   );
+
+  // Weekly adapters only ever compiled the current ISO week, so any week that
+  // passed while a source was not ingesting stayed permanently un-digested —
+  // records present, no digest, forever. --weeks=N walks back over recent weeks.
+  if (args.weeks > 1 && !args.weekKey) {
+    const summary: Array<Record<string, unknown>> = [];
+    const now = Date.now();
+    for (let i = 0; i < args.weeks; i++) {
+      const wk = isoWeekKey(new Date(now - i * 7 * 86400000));
+      const r = await runSourceAdapter(store, args.adapter, {
+        dryRun: args.dryRun,
+        limit: args.limit,
+        force: args.force,
+        weekKey: wk,
+      });
+      summary.push({
+        week: wk,
+        scanned: r.scanned,
+        written: r.written,
+        skipped: r.skipped,
+      });
+    }
+    console.info(JSON.stringify({ adapter: args.adapter, weeks: summary }, null, 2));
+    return;
+  }
+
   const result = await runSourceAdapter(store, args.adapter, {
     dryRun: args.dryRun,
     limit: args.limit,
