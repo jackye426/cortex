@@ -37,16 +37,33 @@ export const Route = createFileRoute("/scan")({
 });
 
 function ScanPage() {
-  const { data, degraded } = useDensity("scan");
-  const nodes = useMemo(() => brainOverlays(data), [data]);
-  const meters = useMemo(() => panelMeters(data), [data]);
-  const dataPoints = useMemo(() => brainDataPoints(data), [data]);
-  const sliceOverlays = useMemo(() => scanSliceOverlays(data), [data]);
+  const { data, degraded, loading } = useDensity("scan");
+  // Hold overlays until the live payload lands; otherwise the fixture-seeded
+  // state paints first and the index visibly swaps versions on open.
+  const nodes = useMemo(
+    () => (loading ? undefined : brainOverlays(data)),
+    [data, loading],
+  );
+  const meters = useMemo(
+    () => (loading ? undefined : panelMeters(data)),
+    [data, loading],
+  );
+  const dataPoints = useMemo(
+    () => (loading ? undefined : brainDataPoints(data)),
+    [data, loading],
+  );
+  const sliceOverlays = useMemo(
+    () => (loading ? undefined : scanSliceOverlays(data)),
+    [data, loading],
+  );
   const readouts = useMemo(() => scanReadouts(data), [data]);
 
   return (
     <DvFrame title="scan / encephalon volumetric dataset">
-      <SourceStrip source={sourceLabel(data)} degraded={degraded} />
+      <SourceStrip
+        source={loading ? "ACQUIRING" : sourceLabel(data)}
+        degraded={degraded}
+      />
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)]">
         <div className="hidden min-h-0 overflow-hidden md:flex md:flex-col md:border-r md:border-dv-line">
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -60,7 +77,11 @@ function ScanPage() {
             <span>VOLUME FIELD / ENCEPHALON</span>
             <span className="hidden truncate sm:inline">{readouts.split}</span>
           </div>
-          <div className="min-h-0 flex-[3]">
+          <div
+            className={`dv-anim min-h-0 flex-[3] transition-opacity duration-500 ${
+              loading ? "opacity-40" : "opacity-100"
+            }`}
+          >
             <BrainField
               nodeOverlays={nodes}
               dataPoints={dataPoints}

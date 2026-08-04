@@ -34,22 +34,41 @@ export const Route = createFileRoute("/particles")({
 });
 
 function ParticlePage() {
-  const { data, degraded } = useDensity("particle");
-  const labels = useMemo(() => particleLabelTexts(data), [data]);
-  const meters = useMemo(() => panelMeters(data), [data]);
-  const orbits = useMemo(() => orbitOverlays(data), [data]);
+  const { data, degraded, loading } = useDensity("particle");
+  // useDensity seeds with fixtures so the shell is never empty. Painting those
+  // while the live request is still in flight showed the fixture build first
+  // and then snapped to the real one — hold overlays until the data lands.
+  const labels = useMemo(
+    () => (loading ? undefined : particleLabelTexts(data)),
+    [data, loading],
+  );
+  const meters = useMemo(
+    () => (loading ? undefined : panelMeters(data)),
+    [data, loading],
+  );
+  const orbits = useMemo(
+    () => (loading ? undefined : orbitOverlays(data)),
+    [data, loading],
+  );
   const readouts = useMemo(() => particleReadouts(data), [data]);
 
   return (
     <DvFrame title="particle / orbital spatial dataset">
-      <SourceStrip source={sourceLabel(data)} degraded={degraded} />
+      <SourceStrip
+        source={loading ? "ACQUIRING" : sourceLabel(data)}
+        degraded={degraded}
+      />
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_240px]">
         <section className="flex min-h-0 flex-col overflow-hidden">
           <div className="dv-micro flex items-center justify-between border-b border-dv-hair px-3 py-2 text-dv-faint">
             <span>SPATIAL FIELD / ORBITAL TRAJECTORIES</span>
             <span className="hidden truncate sm:inline">{readouts.basis}</span>
           </div>
-          <div className="min-h-0 flex-1">
+          <div
+            className={`dv-anim min-h-0 flex-1 transition-opacity duration-500 ${
+              loading ? "opacity-40" : "opacity-100"
+            }`}
+          >
             {/*
               No dataPoints here on purpose. Embedded records were drawn as
               bright unlabelled squares, and semantic position is not readable
