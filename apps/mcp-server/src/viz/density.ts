@@ -14,10 +14,15 @@ import type { CortexStore } from "../store/index.js";
 import { rankConnectionCandidates, type CandidateMemory } from "../connection-candidates.js";
 import { auditSourceCoverage } from "../intrapersonal/source-health.js";
 import { jitterAround, normalizeCloud, projectEmbedding, seeded } from "./project-3d.js";
-import { computeSeries, seriesToOrbits } from "./orbital-series.js";
+import {
+  computeMediaSeries,
+  computeSeries,
+  seriesToOrbits,
+} from "./orbital-series.js";
 import {
   assignTopicFamilies,
   classifyCalendarSummary,
+  familyFromSourceFamily,
   FAMILY_BY_ID,
   SCAN_FAMILIES,
   type ScanFamilyId,
@@ -134,13 +139,14 @@ async function buildScan(store: CortexStore): Promise<VizDensity> {
   }
   const maxTopicCount = Math.max(1, ...topicCounts.values());
 
+  let sourcePriorUsed = 0;
   const familyOf = (o: (typeof observations)[number]): ScanFamilyId => {
     const votes = new Map<ScanFamilyId, number>();
     for (const topic of topicsOf(o.metadata)) {
       const fam = topicFamily.get(topic);
       if (fam) votes.set(fam, (votes.get(fam) ?? 0) + 1);
     }
-    let best: ScanFamilyId = "broadcast";
+    let best: ScanFamilyId | null = null;
     let bestN = -1;
     for (const [fam, n] of votes) {
       if (n > bestN) {
@@ -148,7 +154,15 @@ async function buildScan(store: CortexStore): Promise<VizDensity> {
         bestN = n;
       }
     }
-    return best;
+    if (best) return best;
+    // No topic matched: fall back to where the observation came from rather
+    // than dumping non-DocMap material into BROADCAST.
+    const prior = familyFromSourceFamily(o.sourceFamily);
+    if (prior) {
+      sourcePriorUsed += 1;
+      return prior;
+    }
+    return "broadcast";
   };
 
   const points: VizPoint3[] = [];
@@ -341,11 +355,29 @@ async function buildScan(store: CortexStore): Promise<VizDensity> {
         share: (familyCounts.get(f.id) ?? 0) / totalMass,
       })),
       topicCount: topicCounts.size,
+      sourcePriorUsed,
       unclassifiedTopics: unclassifiedTopics.length,
       hotTopic: hotTopic?.[0] ?? null,
       timeAxis: "session_ordinal",
     }),
   };
+}
+
+/** First populated field wins — adapters name the creator differently. */
+function mediaKey(payload: Record<string, unknown>, fields: string[]): string {
+  for (const f of fields) {
+    const v = payload[f];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (Array.isArray(v)) {
+      const first = v[0];
+      if (typeof first === "string" && first.trim()) return first.trim();
+      if (first && typeof first === "object" && "name" in first) {
+        const name = (first as { name?: unknown }).name;
+        if (typeof name === "string" && name.trim()) return name.trim();
+      }
+    }
+  }
+  return "";
 }
 
 const PARTICLE_CALENDAR_DAYS = 180;
@@ -365,10 +397,13 @@ async function buildParticle(store: CortexStore): Promise<VizDensity> {
   const calendarStart = new Date(
     Date.now() - PARTICLE_CALENDAR_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();
-  const [events, distillates, entities] = await Promise.all([
+  const [events, distillates, entities, plays, episodes, watches] = await Promise.all([
     store.getCalendarStructure(calendarStart, new Date().toISOString()).catch(() => []),
     store.listDistillates({ limit: 800 }),
     store.listEntities("project", 40).catch(() => []),
+    store.listRecordsByType("spotify_play", 400).catch(() => []),
+    store.listRecordsByType("spotify_episode", 200).catch(() => []),
+    store.listRecordsByType("youtube_watch", 300).catch(() => []),
   ]);
 
   // Rhythms are the point of this index; impulses are context. Without a cap
@@ -377,7 +412,25 @@ async function buildParticle(store: CortexStore): Promise<VizDensity> {
   // "Has a rhythm" and "is on schedule" are different questions: a 7-day
   // commitment 40 days overdue is the most interesting body in the system, so
   // it is kept as a rhythm (dim and stalled) rather than binned with one-offs.
-  const allSeries = computeSeries(events);
+  // Media returns: the artist, show or channel you come back to. Grouping by
+  // creator rather than track means the rhythm is "how often do I return to
+  // this", which is the question this index answers.
+  const mediaItems = [
+    ...plays.map((r) => ({
+      key: mediaKey(r.payload, ["artistNames", "artistName", "albumArtist"]),
+      at: String(r.payload.playedAt ?? r.occurredAt ?? ""),
+    })),
+    ...episodes.map((r) => ({
+      key: mediaKey(r.payload, ["showName", "publisher", "episodeName"]),
+      at: String(r.payload.playedAt ?? r.occurredAt ?? ""),
+    })),
+    ...watches.map((r) => ({
+      key: mediaKey(r.payload, ["channelTitle", "channelName"]),
+      at: String(r.payload.watchedAt ?? r.occurredAt ?? ""),
+    })),
+  ].filter((m) => m.key.length > 1);
+
+  const allSeries = [...computeSeries(events), ...computeMediaSeries(mediaItems)];
   const rhythmSeries = allSeries.filter((s) => s.periodDays !== null);
   const impulseSeries = allSeries
     .filter((s) => s.periodDays === null)

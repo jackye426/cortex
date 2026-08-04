@@ -188,6 +188,37 @@ export function classifyTopic(topic: string): ScanFamilyId | null {
   return null;
 }
 
+/**
+ * Fallback when no topic pattern matches.
+ *
+ * The topic patterns were derived from a corpus that was entirely DocMap client
+ * work, so vocabulary from music, reading and browsing matches nothing. Without
+ * a prior those observations defaulted into BROADCAST — filing your listening
+ * history under copy and SEO, which is worse than not showing it at all.
+ * Topic matches still win; this only catches what they miss.
+ */
+export function familyFromSourceFamily(
+  sourceFamily: string | null | undefined,
+): ScanFamilyId | null {
+  switch (sourceFamily) {
+    case "media_spotify":
+    case "media_youtube":
+    case "reading":
+    case "browser":
+      return "default_mode";
+    case "github":
+      return "motor";
+    case "calendar":
+    case "decisions":
+    case "reflections":
+      return "executive";
+    case "email":
+      return "broadcast";
+    default:
+      return null;
+  }
+}
+
 export function classifyCalendarSummary(summary: string | null): ScanFamilyId | null {
   if (!summary) return null;
   for (const group of CALENDAR_PATTERNS) {

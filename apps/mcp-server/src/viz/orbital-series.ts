@@ -100,7 +100,36 @@ export function computeSeries(
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push(ms);
   }
+  return seriesFromKeyed(byKey, now);
+}
 
+/**
+ * Return-rhythms from anything already grouped by key.
+ *
+ * Media is the most genuinely periodic material in the vault — you return to an
+ * artist or a channel on a real cycle — so plays and watches earn orbits the
+ * same way recurring meetings do.
+ */
+export function computeMediaSeries(
+  items: Array<{ key: string; at: string | null }>,
+  now = Date.now(),
+): OrbitalSeries[] {
+  const byKey = new Map<string, number[]>();
+  for (const item of items) {
+    if (!item.at || !item.key) continue;
+    const ms = Date.parse(item.at);
+    if (!Number.isFinite(ms)) continue;
+    const key = item.key.toUpperCase().slice(0, 24);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(ms);
+  }
+  return seriesFromKeyed(byKey, now);
+}
+
+function seriesFromKeyed(
+  byKey: Map<string, number[]>,
+  now: number,
+): OrbitalSeries[] {
   const series: OrbitalSeries[] = [];
   for (const [key, times] of byKey) {
     const returns = clusterReturns(times);
