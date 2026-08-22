@@ -15,6 +15,10 @@ import {
 } from "@cortex/google-auth";
 import { advanceCheckpoint, loadCheckpoint } from "./checkpoint-store.js";
 import {
+  sinkEnvelope,
+  type DigestAccumulator,
+} from "./gbrain-sink.js";
+import {
   getIngestConfig,
   postEnvelope,
   type IngestConfig,
@@ -39,6 +43,11 @@ function checkpointOf(
   };
 }
 
+function gbrainDir(): string | null {
+  const d = process.env.CORTEX_GBRAIN_DIR?.trim();
+  return d || null;
+}
+
 async function ingestPage(
   source: SourceId,
   items: RawEnvelope[],
@@ -47,7 +56,25 @@ async function ingestPage(
 ): Promise<{ ok: number; fail: number }> {
   let ok = 0;
   let fail = 0;
+  const brainDir = gbrainDir();
+  const digestBuckets: Map<string, DigestAccumulator> = new Map();
   for (const env of items) {
+    if (brainDir) {
+      const sunk = sinkEnvelope(
+        env,
+        { brainDir, dryRun: false },
+        digestBuckets,
+      );
+      if (sunk.kind === "skip") {
+        console.info(
+          `[collector-sync] skip ${source}:${env.sourceRecordId} ${sunk.reason ?? ""}`,
+        );
+        ok += 1;
+        continue;
+      }
+      ok += 1;
+      continue;
+    }
     const result = await postEnvelope(env, config);
     if (result.ok) {
       ok += 1;
@@ -236,8 +263,11 @@ async function syncDrive(config: IngestConfig): Promise<void> {
 /** One collector tick: optional Gmail / Calendar / Drive incremental sync. */
 export async function runSyncTick(): Promise<void> {
   const config = getIngestConfig();
-  if (!config.token) {
-    console.warn("[collector-sync] CORTEX_INGEST_TOKEN missing — skip sync");
+  const brainDir = process.env.CORTEX_GBRAIN_DIR?.trim();
+  if (!brainDir && !config.token) {
+    console.warn(
+      "[collector-sync] set CORTEX_GBRAIN_DIR or CORTEX_INGEST_TOKEN — skip sync",
+    );
     return;
   }
 

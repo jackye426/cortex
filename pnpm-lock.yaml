@@ -101,6 +101,9 @@ importers:
       '@cortex/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@cortex/gbrain-session-page':
+        specifier: workspace:*
+        version: link:../../packages/gbrain-session-page
       '@cortex/google-auth':
         specifier: workspace:*
         version: link:../../packages/google-auth
@@ -172,6 +175,9 @@ importers:
       '@cortex/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@cortex/gbrain-session-page':
+        specifier: workspace:*
+        version: link:../../packages/gbrain-session-page
       '@cortex/redaction':
         specifier: workspace:*
         version: link:../../packages/redaction
@@ -405,6 +411,25 @@ importers:
 
   packages/core:
     devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  packages/gbrain-session-page:
+    dependencies:
+      '@cortex/core':
+        specifier: workspace:*
+        version: link:../core
+      '@cortex/redaction':
+        specifier: workspace:*
+        version: link:../redaction
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.10
+        version: 24.13.3
+      tsx:
+        specifier: ^4.20.3
+        version: 4.23.0
       typescript:
         specifier: ^5.8.3
         version: 5.9.3

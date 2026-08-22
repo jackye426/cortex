@@ -12,6 +12,9 @@
     "distillate": "tsx src/distillate-cli.ts",
     "embed-backfill": "tsx src/embed-backfill-cli.ts",
     "twin-pipeline": "tsx src/twin-pipeline-cli.ts",
+    "coding-ops": "tsx src/session-ops/coding-ops-cli.ts",
+    "llm-ops": "tsx src/llm-ops/llm-ops-cli.ts",
+    "weekly-mirror": "tsx src/weekly-mirror-cli.ts",
     "youtube-digest": "tsx src/youtube-digest-cli.ts",
     "source-adapter": "tsx src/source-adapter-cli.ts",
     "quality-gate": "tsx src/quality-gate-cli.ts",
@@ -22,6 +25,7 @@
   },
   "dependencies": {
     "@cortex/core": "workspace:*",
+    "@cortex/gbrain-session-page": "workspace:*",
     "@cortex/redaction": "workspace:*",
     "@cortex/viz-contracts": "workspace:*",
     "@hono/node-server": "^1.14.4",

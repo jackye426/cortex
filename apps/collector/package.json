@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "backfill": "tsx src/backfill.ts",
-    "backfill:dry": "tsx src/backfill.ts --dry-run"
+    "backfill:dry": "tsx src/backfill.ts --dry-run",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@cortex/adapter-browser": "workspace:*",
@@ -25,6 +26,7 @@
     "@cortex/adapter-spotify": "workspace:*",
     "@cortex/adapter-youtube": "workspace:*",
     "@cortex/core": "workspace:*",
+    "@cortex/gbrain-session-page": "workspace:*",
     "@cortex/google-auth": "workspace:*",
     "@cortex/redaction": "workspace:*"
   },

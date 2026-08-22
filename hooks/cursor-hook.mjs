@@ -6,7 +6,7 @@
  * Posts a cursor_hook_delta envelope with noise-filtered summaries only for
  * shell/file hooks (full shell output truncated). Never blocks the agent.
  *
- * Requires CORTEX_INGEST_URL + CORTEX_INGEST_TOKEN.
+ * Default sink: CORTEX_GBRAIN_DIR. Legacy POST only if CORTEX_HOOK_INGEST=1.
  */
 
 import { createHash } from "node:crypto";

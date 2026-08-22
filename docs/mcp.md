@@ -1,5 +1,7 @@
 # Cortex remote MCP
 
+**GBrain-first default:** agents use `gbrain serve` as the daily brain MCP. Cortex Mirror MCP remains available for vault/ops, not as the default session corpus.
+
 Remote **streamable HTTP** MCP for OpenAI (primary), Claude Code, Codex, and ChatGPT. Cursor is optional and not required for day-to-day Mirror use.
 
 **Production (Railway-primary):**  

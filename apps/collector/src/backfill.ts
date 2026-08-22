@@ -46,6 +46,12 @@ import {
 import type { RawEnvelope } from "@cortex/core";
 import { advanceCheckpoint, loadCheckpoint } from "./checkpoint-store.js";
 import {
+  flushDigests,
+  sinkEnvelope,
+  type DigestAccumulator,
+  type GbrainSinkOptions,
+} from "./gbrain-sink.js";
+import {
   getIngestConfig,
   loadDotEnv,
   postEnvelope,
@@ -85,10 +91,16 @@ interface CliOptions {
   noCommits?: boolean;
   /** Gmail list query override (default newer_than:365d). */
   query?: string;
+  /**
+   * Default remains HTTP POST /v1/ingest.
+   * `--sink=gbrain-dir=<path>` writes L1 markdown instead (no POST).
+   */
+  sink: "http" | "gbrain-dir";
+  gbrainDir?: string;
 }
 
 function parseArgs(argv: string[]): CliOptions {
-  const opts: CliOptions = { source: "all", dryRun: false };
+  const opts: CliOptions = { source: "all", dryRun: false, sink: "http" };
   for (const arg of argv) {
     if (arg === "--dry-run" || arg === "-n") {
       opts.dryRun = true;
@@ -161,6 +173,26 @@ function parseArgs(argv: string[]): CliOptions {
       opts.query = arg.slice("--query=".length);
       continue;
     }
+    if (arg.startsWith("--sink=")) {
+      const v = arg.slice("--sink=".length);
+      if (v === "http" || v === "ingest") {
+        opts.sink = "http";
+      } else if (v.startsWith("gbrain-dir=")) {
+        opts.sink = "gbrain-dir";
+        opts.gbrainDir = v.slice("gbrain-dir=".length);
+      } else if (v === "gbrain-dir") {
+        opts.sink = "gbrain-dir";
+      } else {
+        throw new Error(
+          `Unknown --sink=${v} (use http or gbrain-dir=<path>)`,
+        );
+      }
+      continue;
+    }
+    if (arg.startsWith("--gbrain-dir=")) {
+      opts.gbrainDir = arg.slice("--gbrain-dir=".length);
+      continue;
+    }
     if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -184,7 +216,13 @@ Options:
   --max-repos=N           GitHub: cap repos scanned for issues/PRs/commits
   --no-commits            GitHub: skip commit history
   --limit=N               Max envelopes per source
-  --dry-run, -n           Parse + summarize only; do not POST
+  --dry-run, -n           Parse + summarize only; do not POST or write
+  --sink=http             Default: POST /v1/ingest
+  --sink=gbrain-dir=PATH  Write session-v1 / record / weekly digest pages (no POST)
+                          Claude/Codex/Cursor → conversations/<harness>/<id>.md
+                          Gmail/calendar/Drive → mail|calendar|drive pages
+                          YouTube/Spotify/Calibre/browser → one digest per ISO week
+                          GitHub skipped (GBrain native source)
   --page-size=N           Adapter page size (optional)
   --skip-subagents        Cursor: skip isSubagent composers
   --no-transcripts        Cursor: skip agent-transcript merge
@@ -444,9 +482,50 @@ async function runSource(
 
   let ok = 0;
   let fail = 0;
+  const digestBuckets: Map<string, DigestAccumulator> = new Map();
+  const gbrainOpts: GbrainSinkOptions | null =
+    opts.sink === "gbrain-dir" && opts.gbrainDir
+      ? { brainDir: opts.gbrainDir, dryRun: opts.dryRun }
+      : null;
 
   for (let i = startIndex; i < envelopes.length; i++) {
     const env = envelopes[i]!;
+
+    if (gbrainOpts) {
+      const sunk = sinkEnvelope(env, gbrainOpts, digestBuckets);
+      const tag = opts.dryRun ? "dry-run" : "gbrain";
+      if (sunk.kind === "skip") {
+        console.info(
+          `[${tag}] skip ${env.source}:${env.sourceRecordId} ${sunk.reason ?? ""}`,
+        );
+        ok += 1;
+        continue;
+      }
+      if (sunk.kind === "digest" && !sunk.path) {
+        console.info(
+          `[${tag}] digest-buffer ${env.source}:${env.sourceRecordId} ${sunk.reason ?? ""}`,
+        );
+        ok += 1;
+        continue;
+      }
+      console.info(
+        `[${tag}] session-v1 path=${sunk.path ?? "?"} redactionHits=${sunk.redactionHits ?? 0} kind=${sunk.kind} ${summaryLine(env)}`,
+      );
+      if (!opts.dryRun) {
+        advanceCheckpoint({
+          source: env.source,
+          accountKey,
+          cursor: env.sourceRecordId,
+          metadata: {
+            sink: "gbrain-dir",
+            path: sunk.path,
+            redactionHits: sunk.redactionHits,
+          },
+        });
+      }
+      ok += 1;
+      continue;
+    }
 
     if (opts.dryRun) {
       console.info(`[dry-run] ${summaryLine(env)}`);
@@ -478,6 +557,16 @@ async function runSource(
     }
   }
 
+  if (gbrainOpts && digestBuckets.size > 0) {
+    const flushed = flushDigests(digestBuckets, gbrainOpts);
+    for (const d of flushed) {
+      const tag = opts.dryRun ? "dry-run" : "gbrain";
+      console.info(
+        `[${tag}] week-digest path=${d.path ?? "?"} kind=digest (one page per ISO week, not per event)`,
+      );
+    }
+  }
+
   return { ok, fail, total: envelopes.length };
 }
 
@@ -489,6 +578,8 @@ async function main(): Promise<void> {
   console.info("[backfill] starting", {
     source: opts.source,
     dryRun: opts.dryRun,
+    sink: opts.sink,
+    gbrainDir: opts.gbrainDir ?? null,
     limit: opts.limit ?? null,
     path: opts.path ?? null,
     since: opts.since ?? null,
@@ -497,8 +588,13 @@ async function main(): Promise<void> {
     githubTokenSet: Boolean(process.env.GITHUB_TOKEN?.trim()),
   });
 
-  if (!opts.dryRun && !config.token) {
-    console.error("CORTEX_INGEST_TOKEN is required unless --dry-run");
+  if (opts.sink === "gbrain-dir" && !opts.gbrainDir) {
+    console.error("--sink=gbrain-dir requires a path (--sink=gbrain-dir=<path>)");
+    process.exit(1);
+  }
+
+  if (!opts.dryRun && opts.sink === "http" && !config.token) {
+    console.error("CORTEX_INGEST_TOKEN is required unless --dry-run or --sink=gbrain-dir");
     process.exit(1);
   }
 

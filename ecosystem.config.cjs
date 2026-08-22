@@ -88,8 +88,8 @@ module.exports = {
       env: {
         ...fileEnv,
         NODE_ENV: "production",
-        CORTEX_INGEST_URL:
-          fileEnv.CORTEX_INGEST_URL || "http://localhost:8787",
+        // Session ingest is GBrain dir (writers). HTTP ingest is leftover-only.
+        CORTEX_GBRAIN_DIR: fileEnv.CORTEX_GBRAIN_DIR || "",
         CORTEX_COLLECTOR_INTERVAL_MS:
           fileEnv.CORTEX_COLLECTOR_INTERVAL_MS || "300000",
         CORTEX_SYNC_GMAIL: fileEnv.CORTEX_SYNC_GMAIL || "1",
@@ -97,35 +97,8 @@ module.exports = {
         CORTEX_SYNC_DRIVE: fileEnv.CORTEX_SYNC_DRIVE || "1",
       },
     },
-    {
-      name: "cortex-twin-nightly",
-      script: "dist/twin-pipeline-cli.js",
-      args: "--mode=nightly",
-      cwd: path.join(root, "apps/mcp-server"),
-      instances: 1,
-      autorestart: false,
-      cron_restart: "0 3 * * *",
-      watch: false,
-      max_memory_restart: "768M",
-      env: {
-        ...fileEnv,
-        NODE_ENV: "production",
-      },
-    },
-    {
-      name: "cortex-twin-weekly",
-      script: "dist/twin-pipeline-cli.js",
-      args: "--mode=weekly",
-      cwd: path.join(root, "apps/mcp-server"),
-      instances: 1,
-      autorestart: false,
-      cron_restart: "0 4 * * 0",
-      watch: false,
-      max_memory_restart: "768M",
-      env: {
-        ...fileEnv,
-        NODE_ENV: "production",
-      },
-    },
+    // twin-pipeline cron retired (P3). Compilers run after `gbrain dream`:
+    //   node apps/mcp-server coding-ops / weekly-mirror / llm-ops
+    // Default agent MCP is `gbrain serve`, not cortex-mcp.
   ],
 };

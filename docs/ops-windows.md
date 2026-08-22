@@ -1,15 +1,13 @@
 # Cortex Windows ops (always-on)
 
-**Production layout:** ingest API + MCP run on **Railway** (HTTPS). This Windows host only needs the **collector** (Gmail/Calendar/Drive incremental) plus agent **hooks** posting to the public ingest URL.
+**GBrain-first layout:** Windows collector writes L1 pages into `CORTEX_GBRAIN_DIR`. Default agent MCP is `gbrain serve`. Twin-pipeline cron is off — run compilers after dream (`pnpm coding-ops` / `weekly-mirror` / `llm-ops`). See [gbrain-schema-pack.md](gbrain-schema-pack.md).
 
 ## Prerequisites
 
 1. Repo-root `.env` with at least:
-   - `CORTEX_INGEST_URL` — Railway API origin (e.g. `https://…up.railway.app`)
-   - `CORTEX_INGEST_TOKEN` — must match the Railway API service
-   - `CORTEX_MCP_TOKEN` — for Cursor/Claude MCP clients (Railway MCP service)
-   - `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (local backfill / distillate CLIs)
-   - Google / GitHub tokens as needed for sync sources
+   - `CORTEX_GBRAIN_DIR` — brain git repo root (session-v1 / mail / digest pages)
+   - Google tokens as needed for Gmail/Calendar/Drive writers
+   - Legacy HTTP ingest (`CORTEX_INGEST_URL` / `CORTEX_INGEST_TOKEN`) is unused for Claude/Cursor/Codex daily use
 2. Build collector (and packages) once after pull:
 
 ```powershell
@@ -30,13 +28,13 @@ pm2 status
 pm2 logs cortex-collector --lines 50
 ```
 
-Twin pipeline (requires MCP build + Supabase + OpenRouter in `.env`):
+Compilers (after `gbrain dream`, not a pm2 cron):
 
 ```powershell
 pnpm --filter @cortex/mcp-server... build
-pm2 start ecosystem.config.cjs --only cortex-twin-nightly,cortex-twin-weekly
-# one-off historical backfill:
-pnpm twin-pipeline -- --mode=backfill --max-batches=20
+pnpm coding-ops -- --pages=$env:CORTEX_GBRAIN_DIR --dry-run
+pnpm weekly-mirror -- --pages=$env:CORTEX_GBRAIN_DIR --dry-run
+pnpm llm-ops -- --pages=$env:CORTEX_GBRAIN_DIR --dry-run
 ```
 
 Optional local API/MCP (dev only — not required when Railway is up):
@@ -47,9 +45,8 @@ pm2 start ecosystem.config.cjs --only cortex-api,cortex-mcp
 
 | Name | Role |
 |------|------|
-| `cortex-collector` | Polls Gmail history + Calendar/Drive → `CORTEX_INGEST_URL` |
-| `cortex-twin-nightly` | Cron 03:00 — distill + embed + seed-entities (`twin-pipeline --mode=nightly`) |
-| `cortex-twin-weekly` | Cron Sun 04:00 — weekly twin rollup + self-model |
+| `cortex-collector` | Polls Gmail/Calendar/Drive → `CORTEX_GBRAIN_DIR` (HTTP ingest leftover-only) |
+| `gbrain serve` | Default agent MCP (not cortex-mcp) |
 | `cortex-api` / `cortex-mcp` | Local ports 8787 / 8790 — skip if using Railway |
 
 Survive logon:
