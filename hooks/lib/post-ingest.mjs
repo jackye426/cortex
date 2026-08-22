@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { redactText, redactValue } from "./redact.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -45,7 +46,7 @@ function truthy(v) {
   return t === "1" || t === "true" || t === "yes" || t === "on";
 }
 
-function writeGbrainDelta(envelope) {
+export function writeGbrainDelta(envelope) {
   const brainDir = process.env.CORTEX_GBRAIN_DIR?.trim();
   if (!brainDir) {
     console.error(
@@ -58,31 +59,44 @@ function writeGbrainDelta(envelope) {
     /[<>:"|?*\\]/g,
     "_",
   );
-  const rel = join("conversations", harness, `hook-${id}.md`);
+  const rel = join("hooks", harness, `hook-${id}.md`);
   const abs = join(brainDir, rel);
   mkdirSync(dirname(abs), { recursive: true });
-  const body = JSON.stringify(envelope?.body ?? {}, null, 2).slice(0, 80_000);
-  const md = [
-    "---",
-    "cortex_schema: session-hook-delta-v1",
-    `harness: ${harness}`,
-    `source_session_id: ${JSON.stringify(id)}`,
-    "---",
-    "",
-    "## Turns",
-    "",
-    "_Hook delta — collector backfill writes the full session-v1 page._",
-    "",
-    "## Tools",
-    "",
-    "```text",
-    body,
-    "```",
-    "",
-  ].join("\n");
+  const redacted = redactValue(envelope ?? {});
+  const body = JSON.stringify(redacted.value?.body ?? {}, null, 2).slice(
+    0,
+    80_000,
+  );
+  const md = redactText(
+    [
+      "---",
+      "cortex_schema: session-hook-delta-v1",
+      `harness: ${harness}`,
+      `source_session_id: ${JSON.stringify(id)}`,
+      "---",
+      "",
+      "## Turns",
+      "",
+      "_Hook delta — collector backfill writes the full session-v1 page._",
+      "",
+      "## Tools",
+      "",
+      "```text",
+      body,
+      "```",
+      "",
+    ].join("\n"),
+  ).text;
   writeFileSync(abs, md, "utf8");
-  console.info(`[cortex-hook] wrote ${rel}`);
-  return { ok: true, status: 0, path: rel };
+  console.info(
+    `[cortex-hook] wrote ${rel} redactionHits=${redacted.hitCount}`,
+  );
+  return {
+    ok: true,
+    status: 0,
+    path: rel,
+    redactionHits: redacted.hitCount,
+  };
 }
 
 /**

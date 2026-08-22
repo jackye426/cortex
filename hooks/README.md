@@ -1,6 +1,6 @@
 # Cortex reference hooks (GBrain-first)
 
-Default: write a markdown delta under `CORTEX_GBRAIN_DIR` (`conversations/<harness>/hook-*.md`). Full session-v1 pages come from collector `--sink=gbrain-dir=...`. Agent MCP is **`gbrain serve`**, not Cortex ingest.
+Default: write a redacted markdown delta under `CORTEX_GBRAIN_DIR` (`hooks/<harness>/hook-*.md`). These are `session-hook-delta-v1` — not L1 evidence. Full session-v1 pages come from collector `--sink=gbrain-dir=...`. Agent MCP is **`gbrain serve`**, not Cortex ingest.
 
 Legacy `POST /v1/ingest` is a **dead flag**: set `CORTEX_HOOK_INGEST=1` plus `CORTEX_INGEST_URL` / `CORTEX_INGEST_TOKEN`. Hooks are **best-effort** (exit `0`). Shared helper: [`lib/post-ingest.mjs`](lib/post-ingest.mjs).
 

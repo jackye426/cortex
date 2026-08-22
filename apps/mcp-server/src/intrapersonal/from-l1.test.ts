@@ -92,4 +92,65 @@ describe("weekly-mirror from L1 pages", () => {
     );
     assert.ok(attention.confidence <= ASSISTANT_ONLY_CONFIDENCE_CAP + 0.0001);
   });
+
+  it("ignores other-week sessions and hook-delta pages", () => {
+    const dir = mkdtempSync(join(tmpdir(), "wm-week-"));
+    writePage(
+      dir,
+      "conversations/claude-code/fixture-claude-1.md",
+      renderSessionPage(CLAUDE_FIXTURE_SESSION),
+    );
+    const otherWeek = {
+      ...CLAUDE_FIXTURE_SESSION,
+      id: "99999999-9999-4999-8999-999999999999",
+      sourceSessionId: "fixture-claude-w29",
+      startedAt: "2026-07-16T14:00:00.000Z",
+      endedAt: "2026-07-16T15:00:00.000Z",
+    };
+    writePage(
+      dir,
+      "conversations/claude-code/fixture-claude-w29.md",
+      renderSessionPage(otherWeek),
+    );
+    writePage(
+      dir,
+      "mail/msg-100.md",
+      renderRecordPage({
+        schema: "gmail-v1",
+        slug: "mail/msg-100",
+        sourceId: "gmail",
+        sourceRecordId: "msg-100",
+        title: "Q3 roadmap sync",
+        occurredAt: "2026-07-09T09:15:00.000Z",
+        body: "Can we review the Cortex MCP milestone?",
+      }).markdown,
+    );
+    writePage(
+      dir,
+      "conversations/claude-code/hook-secret.md",
+      [
+        "---",
+        "cortex_schema: session-hook-delta-v1",
+        "harness: claude-code",
+        "started_at: 2026-07-10T14:00:00.000Z",
+        "---",
+        "",
+        "# Hook delta should not be L1 evidence",
+        "",
+      ].join("\n"),
+    );
+
+    const result = compileWeeklyMirrorFromL1({
+      pagesDir: dir,
+      weekKey: "2026-W28",
+      dryRun: true,
+    });
+    const excerpts = result.cards
+      .flatMap((c) => c.evidence.map((e) => e.excerpt ?? ""))
+      .join("\n");
+    assert.match(excerpts, /conversations\/claude-code\/fixture-claude-1/);
+    assert.match(excerpts, /mail\/msg-100/);
+    assert.doesNotMatch(excerpts, /fixture-claude-w29/);
+    assert.doesNotMatch(excerpts, /hook-secret/);
+  });
 });

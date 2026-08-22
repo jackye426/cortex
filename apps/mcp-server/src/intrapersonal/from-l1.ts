@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { listMarkdownPages } from "@cortex/gbrain-session-page";
-import { isoWeekKey } from "../week-helpers.js";
+import { inWeek, isoWeekKey, weekRange } from "../week-helpers.js";
 import {
   analyzeClaimCircularity,
   enforceClaimEvidencePolicy,
@@ -31,6 +31,8 @@ export interface L1PageHit {
   supportKind: EvidenceRef["supportKind"];
   title: string;
   excerpt: string;
+  occurredAt: string | null;
+  weekKey: string | null;
 }
 
 export interface CompileWeeklyMirrorFromL1Options {
@@ -61,9 +63,34 @@ function titleOf(markdown: string, fallback: string): string {
   return h?.[1]!.trim() ?? fallback;
 }
 
+function yamlScalar(markdown: string, key: string): string | null {
+  const re = new RegExp(`^${key}:\\s*(.+)$`, "m");
+  const m = markdown.match(re);
+  if (!m) return null;
+  const raw = m[1]!.trim();
+  if (raw === "null" || raw === "~" || raw === "") return null;
+  return raw.replace(/^["']|["']$/g, "");
+}
+
+function weekFromSlug(slug: string): string | null {
+  const m = slug.match(/(\d{4}-W\d{2})/);
+  return m?.[1] ?? null;
+}
+
 function classifyPage(relativePath: string, markdown: string): L1PageHit | null {
   const slug = relativePath.replace(/\.md$/, "");
   const schema = schemaOf(markdown);
+  const occurredAt =
+    yamlScalar(markdown, "occurred_at") ??
+    yamlScalar(markdown, "started_at") ??
+    yamlScalar(markdown, "ended_at");
+  const weekKey =
+    yamlScalar(markdown, "week_key") ?? weekFromSlug(slug);
+
+  if (schema.includes("hook-delta")) {
+    return null;
+  }
+
   const isWeekly =
     slug.startsWith("self/weekly") ||
     schema.includes("weekly-mirror") ||
@@ -77,16 +104,20 @@ function classifyPage(relativePath: string, markdown: string): L1PageHit | null 
       supportKind: "assistant_derived",
       title: titleOf(markdown, slug),
       excerpt: slug,
+      occurredAt,
+      weekKey,
     };
   }
-  if (schema === "session-v1" || relativePath.startsWith("conversations/")) {
+  if (schema === "session-v1") {
     return {
       slug,
-      schema: schema || "session-v1",
+      schema,
       family: "ai_sessions",
       supportKind: "direct_observation",
       title: titleOf(markdown, slug),
       excerpt: slug,
+      occurredAt,
+      weekKey,
     };
   }
   if (
@@ -101,6 +132,8 @@ function classifyPage(relativePath: string, markdown: string): L1PageHit | null 
       supportKind: "direct_observation",
       title: titleOf(markdown, slug),
       excerpt: slug,
+      occurredAt,
+      weekKey,
     };
   }
   if (schema.includes("calendar") || relativePath.startsWith("calendar/")) {
@@ -111,6 +144,8 @@ function classifyPage(relativePath: string, markdown: string): L1PageHit | null 
       supportKind: "direct_observation",
       title: titleOf(markdown, slug),
       excerpt: slug,
+      occurredAt,
+      weekKey,
     };
   }
   return null;
@@ -142,10 +177,18 @@ function hitToAnnotated(hit: L1PageHit): AnnotatedMemoryHit {
   };
 }
 
-export function listL1Evidence(pagesDir: string): L1PageHit[] {
-  return listMarkdownPages(pagesDir)
+export function pageInWeek(hit: L1PageHit, weekKey: string): boolean {
+  if (hit.weekKey) return hit.weekKey === weekKey;
+  const { start, end } = weekRange(weekKey);
+  return inWeek(hit.occurredAt, start, end);
+}
+
+export function listL1Evidence(pagesDir: string, weekKey?: string): L1PageHit[] {
+  const hits = listMarkdownPages(pagesDir)
     .map((p) => classifyPage(p.relativePath, p.markdown))
     .filter((h): h is L1PageHit => Boolean(h));
+  if (!weekKey) return hits;
+  return hits.filter((h) => pageInWeek(h, weekKey));
 }
 
 export function compileWeeklyMirrorFromL1(
@@ -154,7 +197,7 @@ export function compileWeeklyMirrorFromL1(
   const weekKey = options.weekKey ?? isoWeekKey();
   const dryRun = Boolean(options.dryRun);
   const outDir = options.outDir ?? options.pagesDir;
-  const hits = listL1Evidence(options.pagesDir);
+  const hits = listL1Evidence(options.pagesDir, weekKey);
   const l1 = hits.filter((h) => h.supportKind !== "assistant_derived");
   const dream = hits.filter((h) => h.supportKind === "assistant_derived");
 
