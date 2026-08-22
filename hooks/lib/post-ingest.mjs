@@ -1,10 +1,11 @@
 /**
- * Shared best-effort ingest POST with light retry for Cortex hooks.
- * Dependency-free (hooks must not require workspace packages).
+ * Shared best-effort hook sink. Default: write a GBrain L1 delta page.
+ * Legacy Cortex POST /v1/ingest is behind the dead flag CORTEX_HOOK_INGEST=1.
+ * Always resolves; never throws (hooks must exit 0).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -39,12 +40,61 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function truthy(v) {
+  const t = String(v ?? "").trim().toLowerCase();
+  return t === "1" || t === "true" || t === "yes" || t === "on";
+}
+
+function writeGbrainDelta(envelope) {
+  const brainDir = process.env.CORTEX_GBRAIN_DIR?.trim();
+  if (!brainDir) {
+    console.error(
+      "[cortex-hook] set CORTEX_GBRAIN_DIR to write L1 pages (or CORTEX_HOOK_INGEST=1 for legacy POST)",
+    );
+    return { ok: false, status: 0, error: "missing CORTEX_GBRAIN_DIR" };
+  }
+  const harness = envelope?.source ?? "unknown";
+  const id = String(envelope?.sourceRecordId ?? "hook").replace(
+    /[<>:"|?*\\]/g,
+    "_",
+  );
+  const rel = join("conversations", harness, `hook-${id}.md`);
+  const abs = join(brainDir, rel);
+  mkdirSync(dirname(abs), { recursive: true });
+  const body = JSON.stringify(envelope?.body ?? {}, null, 2).slice(0, 80_000);
+  const md = [
+    "---",
+    "cortex_schema: session-hook-delta-v1",
+    `harness: ${harness}`,
+    `source_session_id: ${JSON.stringify(id)}`,
+    "---",
+    "",
+    "## Turns",
+    "",
+    "_Hook delta — collector backfill writes the full session-v1 page._",
+    "",
+    "## Tools",
+    "",
+    "```text",
+    body,
+    "```",
+    "",
+  ].join("\n");
+  writeFileSync(abs, md, "utf8");
+  console.info(`[cortex-hook] wrote ${rel}`);
+  return { ok: true, status: 0, path: rel };
+}
+
 /**
- * POST RawEnvelope to /v1/ingest with exponential backoff on 429/5xx/network.
- * Always resolves; never throws (hooks must exit 0).
+ * Default: write a GBrain page. Legacy ingest only when CORTEX_HOOK_INGEST=1.
  */
 export async function postIngest(envelope, options = {}) {
   loadHookEnv();
+
+  if (!truthy(process.env.CORTEX_HOOK_INGEST) && !options.forceIngest) {
+    return writeGbrainDelta(envelope);
+  }
+
   const base = (
     options.url ??
     process.env.CORTEX_INGEST_URL ??
@@ -54,7 +104,7 @@ export async function postIngest(envelope, options = {}) {
   const maxAttempts = options.maxAttempts ?? 4;
 
   if (!token) {
-    console.error("[cortex-hook] CORTEX_INGEST_TOKEN is not set; skipping");
+    console.error("[cortex-hook] CORTEX_INGEST_TOKEN is not set; skipping legacy ingest");
     return { ok: false, status: 0, error: "missing token" };
   }
 

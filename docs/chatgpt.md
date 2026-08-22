@@ -1,6 +1,6 @@
 # ChatGPT → Cortex
 
-Two capture paths: **historical** official export ZIP, and **ongoing** MV3 browser extension. Neither scrapes OpenAI `backend-api` cookies.
+**GBrain-first:** ChatGPT may use stock GBrain transcript ingest (text-only is OK). Cortex `--sink=gbrain-dir` also writes session-v1 pages without requiring `## Tools`. **llm-ops** (`pnpm llm-ops -- --pages=$BRAIN`) is the compiler — not coding-ops.
 
 **Status:** historical export ingest works (single `conversations.json` or sharded `conversations-NNN.json`). Ongoing capture via MV3 extension.
 

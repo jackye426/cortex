@@ -1,6 +1,6 @@
 # GitHub work-history (Phase 4)
 
-Cortex ingests **repos, issues, pull requests, and commits** (metadata). It does **not** ingest notifications, Discussions, or Copilot.
+**GBrain-first:** GitHub is a **GBrain native source**. Cortex github RAG / `--source=github` backfill is retired on the `--sink=gbrain-dir` path (the writer skips with that reason). Keep this adapter only for vault hole-fill onto HTTP ingest.
 
 Adapter: `packages/adapters/github` (`@cortex/adapter-github`).
 

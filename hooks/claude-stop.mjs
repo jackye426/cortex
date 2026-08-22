@@ -12,7 +12,7 @@
  * }
  *
  * Claude Code posts JSON on stdin. We forward a redacted delta envelope.
- * Requires CORTEX_INGEST_URL + CORTEX_INGEST_TOKEN in the environment.
+ * Default sink: CORTEX_GBRAIN_DIR. Legacy POST /v1/ingest only if CORTEX_HOOK_INGEST=1.
  */
 
 import { createHash } from "node:crypto";
