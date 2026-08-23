@@ -45,6 +45,14 @@ function loadEnvFile(filePath) {
 
 const fileEnv = loadEnvFile(envFile);
 
+const bunBin = path.join(
+  process.env.USERPROFILE || process.env.HOME || "",
+  ".bun/bin",
+);
+const brainRepo =
+  fileEnv.CORTEX_GBRAIN_DIR ||
+  path.join(root, "..", "brain");
+
 module.exports = {
   apps: [
     {
@@ -97,8 +105,46 @@ module.exports = {
         CORTEX_SYNC_DRIVE: fileEnv.CORTEX_SYNC_DRIVE || "1",
       },
     },
-    // twin-pipeline cron retired (P3). Compilers run after `gbrain dream`:
-    //   node apps/mcp-server coding-ops / weekly-mirror / llm-ops
+    {
+      // GBrain indexes commits, not the working tree, and no gbrain command
+      // stages the collector's output — so this is the one step autopilot
+      // cannot do for us. Sync/embed deliberately live in gbrain-autopilot;
+      // running them here too just contends for the same locks.
+      name: "gbrain-commit",
+      script: path.join(root, "scripts/gbrain-commit.mjs"),
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      time: true,
+      env: {
+        ...fileEnv,
+        PATH: `${bunBin};${process.env.PATH || ""}`,
+      },
+    },
+    {
+      // Owns every phase downstream of the commit: lint, backlinks, sync,
+      // extract, synthesize, patterns, embed, orphans. Replaces the manual
+      // `gbrain dream` run. `gbrain autopilot --install` only targets
+      // launchd/systemd/cron, so on Windows pm2 is the supervisor.
+      name: "gbrain-autopilot",
+      script: path.join(bunBin, "gbrain.exe"),
+      interpreter: "none",
+      args: ["autopilot", "--repo", brainRepo, "--interval", "300"],
+      cwd: brainRepo,
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      time: true,
+      // The daemon self-limits crash restarts; back off so a Supabase outage
+      // cannot thrash the queue.
+      restart_delay: 10_000,
+      env: {
+        ...fileEnv,
+        PATH: `${bunBin};${process.env.PATH || ""}`,
+      },
+    },
+    // Compilers (coding-ops / weekly-mirror / llm-ops) remain manual:
+    //   node apps/mcp-server coding-ops | weekly-mirror | llm-ops
     // Default agent MCP is `gbrain serve`, not cortex-mcp.
   ],
 };
