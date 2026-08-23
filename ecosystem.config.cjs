@@ -126,10 +126,13 @@ module.exports = {
       // extract, synthesize, patterns, embed, orphans. Replaces the manual
       // `gbrain dream` run. `gbrain autopilot --install` only targets
       // launchd/systemd/cron, so on Windows pm2 is the supervisor.
+      //
+      // Run through scripts/gbrain-hidden.mjs (windowsHide) and --inline so
+      // autopilot does not spawn detached gbrain.exe children. Those children
+      // each open a visible console on Windows.
       name: "gbrain-autopilot",
-      script: path.join(bunBin, "gbrain.exe"),
-      interpreter: "none",
-      args: ["autopilot", "--repo", brainRepo, "--interval", "300"],
+      script: path.join(root, "scripts/gbrain-hidden.mjs"),
+      args: ["autopilot", "--repo", brainRepo, "--interval", "300", "--inline"],
       cwd: brainRepo,
       instances: 1,
       autorestart: true,

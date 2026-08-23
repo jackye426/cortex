@@ -19,7 +19,12 @@ const env = {
 };
 
 function git(args) {
-  return spawnSync("git", args, { cwd: repo, env, encoding: "utf8" });
+  return spawnSync("git", args, {
+    cwd: repo,
+    env,
+    encoding: "utf8",
+    windowsHide: true,
+  });
 }
 
 function commitCollectorPages() {
