@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { redactText } from "@cortex/redaction";
+import { sanitizePathPart } from "./render.js";
 import { dumpFrontmatter } from "./yaml.js";
 
 export interface RecordPageInput {
@@ -44,9 +45,13 @@ export function renderRecordPage(input: RecordPageInput): {
     metadata: input.metadata ?? {},
   });
   const markdown = `${fm}\n\n# ${input.title ?? input.sourceRecordId}\n\n${redacted.text}\n`;
+  const relativePath = `${input.slug
+    .split("/")
+    .map((part) => sanitizePathPart(part))
+    .join("/")}.md`;
   return {
     markdown,
-    relativePath: `${input.slug}.md`,
+    relativePath,
     redactionHitCount: redacted.hits.reduce((s, h) => s + h.count, 0),
   };
 }

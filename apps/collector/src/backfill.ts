@@ -43,7 +43,7 @@ import {
   YoutubeAdapter,
   YoutubeTakeoutAdapter,
 } from "@cortex/adapter-youtube";
-import type { RawEnvelope } from "@cortex/core";
+import type { AdapterPage, RawEnvelope, SyncCheckpoint } from "@cortex/core";
 import { advanceCheckpoint, loadCheckpoint } from "./checkpoint-store.js";
 import {
   flushDigests,
@@ -97,6 +97,8 @@ interface CliOptions {
    */
   sink: "http" | "gbrain-dir";
   gbrainDir?: string;
+  /** Ignore local checkpoint and start from the first page. */
+  resetCheckpoint?: boolean;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -116,6 +118,10 @@ function parseArgs(argv: string[]): CliOptions {
     }
     if (arg === "--no-commits") {
       opts.noCommits = true;
+      continue;
+    }
+    if (arg === "--reset-checkpoint") {
+      opts.resetCheckpoint = true;
       continue;
     }
     if (arg.startsWith("--source=")) {
@@ -215,7 +221,8 @@ Options:
   --since=ISO             GitHub: incremental lower bound (issues/commits/PRs)
   --max-repos=N           GitHub: cap repos scanned for issues/PRs/commits
   --no-commits            GitHub: skip commit history
-  --limit=N               Max envelopes per source
+  --limit=N               Max envelopes per source (applied while posting, not discovery)
+  --reset-checkpoint      Ignore local checkpoint and start from the first page
   --dry-run, -n           Parse + summarize only; do not POST or write
   --sink=http             Default: POST /v1/ingest
   --sink=gbrain-dir=PATH  Write session-v1 / record / weekly digest pages (no POST)
@@ -570,6 +577,118 @@ async function runSource(
   return { ok, fail, total: envelopes.length };
 }
 
+async function runSourcePaged(
+  name: string,
+  fetchPage: (checkpoint?: SyncCheckpoint) => Promise<AdapterPage>,
+  opts: CliOptions,
+  config: ReturnType<typeof getIngestConfig>,
+): Promise<{ ok: number; fail: number; total: number }> {
+  const accountKey = "default";
+  const gbrainOpts: GbrainSinkOptions | null =
+    opts.sink === "gbrain-dir" && opts.gbrainDir
+      ? { brainDir: opts.gbrainDir, dryRun: opts.dryRun }
+      : null;
+  const digestBuckets: Map<string, DigestAccumulator> = new Map();
+
+  let cursor: string | undefined;
+  if (!opts.resetCheckpoint && !opts.dryRun) {
+    cursor = loadCheckpoint(name, accountKey)?.cursor;
+    if (cursor) {
+      console.info(`[backfill] ${name}: resume cursor=${cursor}`);
+    }
+  }
+
+  let ok = 0;
+  let fail = 0;
+  let total = 0;
+  let hasMore = true;
+  while (hasMore) {
+    const checkpoint: SyncCheckpoint | undefined = cursor
+      ? {
+          source: name as SyncCheckpoint["source"],
+          accountKey,
+          cursor,
+          updatedAt: new Date().toISOString(),
+        }
+      : undefined;
+    const page = await fetchPage(checkpoint);
+    console.info(
+      `[backfill] ${name}: page items=${page.items.length} hasMore=${page.hasMore} next=${page.nextCursor ?? "end"}`,
+    );
+    for (const env of page.items) {
+      total += 1;
+      if (opts.limit != null && total > opts.limit) {
+        hasMore = false;
+        break;
+      }
+      if (gbrainOpts) {
+        const sunk = sinkEnvelope(env, gbrainOpts, digestBuckets);
+        const tag = opts.dryRun ? "dry-run" : "gbrain";
+        if (sunk.kind === "skip") {
+          console.info(
+            `[${tag}] skip ${env.source}:${env.sourceRecordId} ${sunk.reason ?? ""}`,
+          );
+          ok += 1;
+        } else if (sunk.kind === "digest" && !sunk.path) {
+          console.info(
+            `[${tag}] digest-buffer ${env.source}:${env.sourceRecordId} ${sunk.reason ?? ""}`,
+          );
+          ok += 1;
+        } else {
+          console.info(
+            `[${tag}] session-v1 path=${sunk.path ?? "?"} redactionHits=${sunk.redactionHits ?? 0} kind=${sunk.kind} ${summaryLine(env)}`,
+          );
+          ok += 1;
+        }
+        continue;
+      }
+      if (opts.dryRun) {
+        console.info(`[dry-run] ${summaryLine(env)}`);
+        ok += 1;
+        continue;
+      }
+      const result = await postEnvelope(env, config);
+      if (result.ok) {
+        ok += 1;
+        advanceCheckpoint({
+          source: env.source,
+          accountKey,
+          cursor: page.nextCursor ?? env.sourceRecordId,
+          metadata: { key: result.key, contentHash: result.contentHash },
+        });
+        console.info(`[ingest] ok ${result.key}`);
+      } else {
+        fail += 1;
+        console.error(
+          `[ingest] FAIL ${env.source}:${env.sourceRecordId} ${result.error}`,
+        );
+      }
+    }
+    if (!opts.dryRun && page.items.length > 0) {
+      const last = page.items[page.items.length - 1]!;
+      advanceCheckpoint({
+        source: last.source,
+        accountKey,
+        cursor: page.nextCursor ?? last.sourceRecordId,
+        metadata: { sink: gbrainOpts ? "gbrain-dir" : "http" },
+      });
+    }
+    if (opts.limit != null && total >= opts.limit) break;
+    cursor = page.nextCursor ?? undefined;
+    hasMore = Boolean(page.hasMore && page.nextCursor);
+  }
+
+  if (gbrainOpts && digestBuckets.size > 0) {
+    const flushed = flushDigests(digestBuckets, gbrainOpts);
+    for (const d of flushed) {
+      const tag = opts.dryRun ? "dry-run" : "gbrain";
+      console.info(`[${tag}] week-digest path=${d.path ?? "?"} kind=digest`);
+    }
+  }
+
+  return { ok, fail, total };
+}
+
 async function main(): Promise<void> {
   loadDotEnv();
   const opts = parseArgs(process.argv.slice(2));
@@ -620,15 +739,14 @@ async function main(): Promise<void> {
 
   if (opts.source === "claude" || opts.source === "all") {
     const adapter = new ClaudeCodeAdapter({
-      limit: opts.limit,
       pageSize: opts.pageSize,
       collectorName: "collector-backfill",
     });
     const health = await adapter.healthcheck();
     console.info("[backfill] claude health", health);
-    const r = await runSource(
+    const r = await runSourcePaged(
       "claude-code",
-      () => adapter.backfillAll(),
+      (checkpoint) => adapter.fetchPage(checkpoint),
       opts,
       config,
     );
@@ -639,15 +757,14 @@ async function main(): Promise<void> {
 
   if (opts.source === "codex" || opts.source === "all") {
     const adapter = new CodexAdapter({
-      limit: opts.limit,
       pageSize: opts.pageSize,
       collectorName: "collector-backfill",
     });
     const health = await adapter.healthcheck();
     console.info("[backfill] codex health", health);
-    const r = await runSource(
+    const r = await runSourcePaged(
       "codex",
-      () => adapter.backfillAll(),
+      (checkpoint) => adapter.fetchPage(checkpoint),
       opts,
       config,
     );
@@ -658,7 +775,6 @@ async function main(): Promise<void> {
 
   if (opts.source === "cursor" || opts.source === "all") {
     const adapter = new CursorAdapter({
-      limit: opts.limit,
       pageSize: opts.pageSize,
       skipSubagents: opts.skipSubagents,
       includeAgentTranscripts: !opts.noTranscripts,
@@ -666,9 +782,9 @@ async function main(): Promise<void> {
     });
     const health = await adapter.healthcheck();
     console.info("[backfill] cursor health", health);
-    const r = await runSource(
+    const r = await runSourcePaged(
       "cursor",
-      () => adapter.backfillAll(),
+      (checkpoint) => adapter.fetchPage(checkpoint),
       opts,
       config,
     );
@@ -743,18 +859,21 @@ async function main(): Promise<void> {
 
   if (opts.source === "calendar") {
     const adapter = new CalendarAdapter({
-      limit: opts.limit,
+      ...(opts.sink === "gbrain-dir" ? {} : { limit: opts.limit }),
       pageSize: opts.pageSize,
       collectorName: "collector-backfill",
     });
     const health = await adapter.healthcheck();
     console.info("[backfill] calendar health", health);
-    const r = await runSource(
-      "calendar",
-      () => adapter.backfillAll(),
-      opts,
-      config,
-    );
+    const r =
+      opts.sink === "gbrain-dir"
+        ? await runSourcePaged(
+            "calendar",
+            (checkpoint) => adapter.fetchPage(checkpoint),
+            opts,
+            config,
+          )
+        : await runSource("calendar", () => adapter.backfillAll(), opts, config);
     totals.ok += r.ok;
     totals.fail += r.fail;
     totals.total += r.total;
@@ -762,18 +881,21 @@ async function main(): Promise<void> {
 
   if (opts.source === "drive") {
     const adapter = new DriveAdapter({
-      limit: opts.limit,
+      ...(opts.sink === "gbrain-dir" ? {} : { limit: opts.limit }),
       pageSize: opts.pageSize,
       collectorName: "collector-backfill",
     });
     const health = await adapter.healthcheck();
     console.info("[backfill] drive health", health);
-    const r = await runSource(
-      "drive",
-      () => adapter.backfillAll(),
-      opts,
-      config,
-    );
+    const r =
+      opts.sink === "gbrain-dir"
+        ? await runSourcePaged(
+            "drive",
+            (checkpoint) => adapter.fetchPage(checkpoint),
+            opts,
+            config,
+          )
+        : await runSource("drive", () => adapter.backfillAll(), opts, config);
     totals.ok += r.ok;
     totals.fail += r.fail;
     totals.total += r.total;
@@ -781,7 +903,7 @@ async function main(): Promise<void> {
 
   if (opts.source === "gmail") {
     const adapter = new GmailAdapter({
-      limit: opts.limit,
+      ...(opts.sink === "gbrain-dir" ? {} : { limit: opts.limit }),
       pageSize: opts.pageSize,
       collectorName: "collector-backfill",
       query: opts.query,
@@ -792,28 +914,41 @@ async function main(): Promise<void> {
       `[backfill] gmail query=${opts.query ?? "newer_than:365d (default)"}`,
     );
     console.info("[backfill] gmail watch notes:\n" + adapter.watchNotes());
-    const gmailPrior = !opts.dryRun
-      ? loadCheckpoint("gmail", "default")
-      : null;
-    if (gmailPrior?.cursor) {
-      console.info(
-        `[backfill] gmail: list-resume afterMessageId=${gmailPrior.cursor}`,
+    if (opts.sink === "gbrain-dir") {
+      const r = await runSourcePaged(
+        "gmail",
+        (checkpoint) => adapter.fetchPage(checkpoint),
+        opts,
+        config,
       );
+      totals.ok += r.ok;
+      totals.fail += r.fail;
+      totals.total += r.total;
+    } else {
+      const gmailPrior =
+        !opts.dryRun && !opts.resetCheckpoint
+          ? loadCheckpoint("gmail", "default")
+          : null;
+      if (gmailPrior?.cursor) {
+        console.info(
+          `[backfill] gmail: list-resume afterMessageId=${gmailPrior.cursor}`,
+        );
+      }
+      const r = await runSource(
+        "gmail",
+        () =>
+          adapter.backfillAll(
+            gmailPrior?.cursor
+              ? { afterMessageId: gmailPrior.cursor }
+              : undefined,
+          ),
+        opts,
+        config,
+      );
+      totals.ok += r.ok;
+      totals.fail += r.fail;
+      totals.total += r.total;
     }
-    const r = await runSource(
-      "gmail",
-      () =>
-        adapter.backfillAll(
-          gmailPrior?.cursor
-            ? { afterMessageId: gmailPrior.cursor }
-            : undefined,
-        ),
-      opts,
-      config,
-    );
-    totals.ok += r.ok;
-    totals.fail += r.fail;
-    totals.total += r.total;
   }
 
   if (opts.source === "spotify") {
