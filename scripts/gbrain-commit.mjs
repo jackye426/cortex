@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname } from "node:path";
 
 // GBrain only sees committed files, and no gbrain command commits for us.
 // Everything downstream of the commit (sync, embed, lint, extract, synthesize)
@@ -7,9 +9,17 @@ import { spawnSync } from "node:child_process";
 
 const repo = "C:\\Users\\yulon\\Desktop\\Current Projects\\brain";
 const intervalMs = 180_000;
+const bunBin = `${process.env.USERPROFILE || process.env.HOME || ""}\\.bun\\bin`;
+// Git for Windows' cmd\git.exe wrapper re-launches mingw git without
+// CREATE_NO_WINDOW, which flashes a console every tick. Call mingw git
+// directly so Node's windowsHide applies to the process that does the work.
+const gitExe =
+  process.env.GBRAIN_GIT_EXE ||
+  "C:\\Program Files\\Git\\mingw64\\bin\\git.exe";
+const gitBin = dirname(gitExe);
 const env = {
   ...process.env,
-  PATH: `C:\\Users\\yulon\\.bun\\bin;${process.env.PATH ?? ""}`,
+  PATH: `${gitBin};${bunBin};${process.env.PATH ?? ""}`,
   GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME || "jackye426",
   GIT_AUTHOR_EMAIL:
     process.env.GIT_AUTHOR_EMAIL || "jackye426@users.noreply.github.com",
@@ -19,15 +29,20 @@ const env = {
 };
 
 function git(args) {
-  return spawnSync("git", args, {
+  return spawnSync(gitExe, args, {
     cwd: repo,
     env,
     encoding: "utf8",
     windowsHide: true,
+    stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
 function commitCollectorPages() {
+  if (!existsSync(gitExe)) {
+    console.error(`[gbrain-commit] git not found: ${gitExe}`);
+    return 0;
+  }
   git(["add", "--", "hooks", "mail", "drive", "conversations"]);
   git(["add", "--", "calendar"]);
   git(["reset", "-q", "--", "calendar/primary"]);

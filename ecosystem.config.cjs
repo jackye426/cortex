@@ -49,6 +49,9 @@ const bunBin = path.join(
   process.env.USERPROFILE || process.env.HOME || "",
   ".bun/bin",
 );
+// Prefer mingw git.exe over Git\\cmd\\git.exe so Windows does not flash a
+// console for the Git-for-Windows wrapper's grandchild.
+const gitMingwBin = "C:\\Program Files\\Git\\mingw64\\bin";
 const brainRepo =
   fileEnv.CORTEX_GBRAIN_DIR ||
   path.join(root, "..", "brain");
@@ -118,7 +121,7 @@ module.exports = {
       time: true,
       env: {
         ...fileEnv,
-        PATH: `${bunBin};${process.env.PATH || ""}`,
+        PATH: `${gitMingwBin};${bunBin};${process.env.PATH || ""}`,
       },
     },
     {
@@ -127,9 +130,9 @@ module.exports = {
       // `gbrain dream` run. `gbrain autopilot --install` only targets
       // launchd/systemd/cron, so on Windows pm2 is the supervisor.
       //
-      // Run through scripts/gbrain-hidden.mjs (windowsHide) and --inline so
-      // autopilot does not spawn detached gbrain.exe children. Those children
-      // each open a visible console on Windows.
+      // Run through scripts/gbrain-hidden.mjs: hidden Bun console so git
+      // children do not flash, plus --inline so autopilot does not spawn
+      // detached gbrain.exe children (those also open visible consoles).
       name: "gbrain-autopilot",
       script: path.join(root, "scripts/gbrain-hidden.mjs"),
       args: ["autopilot", "--repo", brainRepo, "--interval", "300", "--inline"],
@@ -143,7 +146,7 @@ module.exports = {
       restart_delay: 10_000,
       env: {
         ...fileEnv,
-        PATH: `${bunBin};${process.env.PATH || ""}`,
+        PATH: `${gitMingwBin};${bunBin};${process.env.PATH || ""}`,
       },
     },
     // Compilers (coding-ops / weekly-mirror / llm-ops) remain manual:
