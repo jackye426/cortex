@@ -1,0 +1,347 @@
+/* Cortex data-verse mock — monochrome only (white opacity hierarchy on black) */
+
+:root {
+  --bg: #000000;
+  --w-100: rgba(255, 255, 255, 1);
+  --w-70: rgba(255, 255, 255, 0.7);
+  --w-40: rgba(255, 255, 255, 0.4);
+  --w-22: rgba(255, 255, 255, 0.22);
+  --w-12: rgba(255, 255, 255, 0.12);
+  --w-08: rgba(255, 255, 255, 0.08);
+  --w-06: rgba(255, 255, 255, 0.06);
+  --w-04: rgba(255, 255, 255, 0.04);
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", "SF Mono", Menlo,
+    Consolas, monospace;
+  --hud-pad: clamp(12px, 2.2vw, 28px);
+  --label: 10px;
+  --stamp: 13px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  color: var(--w-70);
+  font-family: var(--mono);
+  font-size: var(--label);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.viewport {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--bg);
+  cursor: crosshair;
+  user-select: none;
+}
+
+.scan-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Slow horizontal raster sweep */
+.scan-raster {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  top: 0;
+  background: var(--w-40);
+  box-shadow: 0 0 0 1px var(--w-06);
+  pointer-events: none;
+  z-index: 4;
+  animation: raster-sweep 7.5s linear infinite;
+}
+
+.scan-raster::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -48px;
+  height: 48px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(255, 255, 255, 0.045)
+  );
+}
+
+.scan-haze {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    rgba(255, 255, 255, 0.015) 2px,
+    rgba(255, 255, 255, 0.015) 3px
+  );
+  mix-blend-mode: screen;
+}
+
+@keyframes raster-sweep {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100vh);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan-raster {
+    animation: none;
+    top: 42%;
+    opacity: 0.55;
+  }
+}
+
+/* Corner HUDs — hairline, never carded */
+.hud {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-tl {
+  top: var(--hud-pad);
+  left: var(--hud-pad);
+}
+
+.hud-tr {
+  top: var(--hud-pad);
+  right: var(--hud-pad);
+  text-align: right;
+  align-items: flex-end;
+}
+
+.hud-bl {
+  bottom: var(--hud-pad);
+  left: var(--hud-pad);
+}
+
+.hud-br {
+  bottom: var(--hud-pad);
+  right: var(--hud-pad);
+  text-align: right;
+  align-items: flex-end;
+  pointer-events: auto;
+}
+
+.stamp {
+  color: var(--w-100);
+  font-size: var(--stamp);
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  line-height: 1.2;
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45em;
+  color: var(--w-40);
+  line-height: 1.35;
+}
+
+.hud-tr .meta-row,
+.hud-br .meta-row {
+  justify-content: flex-end;
+}
+
+.meta-row .val {
+  color: var(--w-70);
+}
+
+.meta-row.dim,
+.dim {
+  color: var(--w-22);
+}
+
+.sep {
+  color: var(--w-12);
+}
+
+.scale-bar {
+  position: relative;
+  width: 80px;
+  height: 14px;
+  margin-bottom: 4px;
+}
+
+.scale-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 1px;
+  background: var(--w-40);
+}
+
+.scale-ticks {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+}
+
+.scale-ticks i {
+  display: block;
+  width: 1px;
+  height: 8px;
+  margin-top: 2px;
+  background: var(--w-40);
+}
+
+.idx-stream {
+  list-style: none;
+  margin: 2px 0 8px;
+  min-width: 16ch;
+  max-height: 9.5em;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.idx-stream li {
+  color: var(--w-22);
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.idx-stream li:first-child {
+  color: var(--w-70);
+}
+
+.idx-stream li:nth-child(2) {
+  color: var(--w-40);
+}
+
+.hairline-ctrl {
+  pointer-events: auto;
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--w-22);
+  color: var(--w-70);
+  font: inherit;
+  font-size: var(--label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.hairline-ctrl:hover,
+.hairline-ctrl:focus-visible {
+  border-color: var(--w-70);
+  color: var(--w-100);
+  outline: none;
+}
+
+.hairline-ctrl:active {
+  border-color: var(--w-100);
+}
+
+/* Cascading micro-numerals along the right edge */
+.edge-rail {
+  position: absolute;
+  top: 18%;
+  bottom: 22%;
+  right: calc(var(--hud-pad) + 2px);
+  width: 7ch;
+  overflow: hidden;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0.55;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 12%,
+    #000 88%,
+    transparent
+  );
+}
+
+.edge-numerals {
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.35;
+  letter-spacing: 0.06em;
+  color: var(--w-22);
+  text-align: right;
+  white-space: pre;
+}
+
+/* Fine center crosshair (CSS; canvas also draws axes) */
+.crosshair {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.ch-h,
+.ch-v {
+  position: absolute;
+  background: var(--w-08);
+}
+
+.ch-h {
+  left: 12%;
+  right: 12%;
+  top: 50%;
+  height: 1px;
+}
+
+.ch-v {
+  top: 10%;
+  bottom: 10%;
+  left: 50%;
+  width: 1px;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --label: 9px;
+    --stamp: 11px;
+    --hud-pad: 10px;
+  }
+
+  .edge-rail {
+    display: none;
+  }
+
+  .idx-stream {
+    max-height: 6em;
+    min-width: 12ch;
+  }
+
+  .scale-bar {
+    width: 56px;
+  }
+}

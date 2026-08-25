@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CORTEX — SCAN</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="viewport" class="viewport" aria-label="Cortex scan instrument">
+      <canvas id="scan" class="scan-canvas" aria-hidden="true"></canvas>
+      <div class="scan-raster" aria-hidden="true"></div>
+      <div class="scan-haze" aria-hidden="true"></div>
+
+      <header class="hud hud-tl">
+        <div class="stamp">CORTEX</div>
+        <div class="meta-row">
+          <span>MIRROR</span>
+          <span class="sep">·</span>
+          <span>MONO</span>
+          <span class="sep">·</span>
+          <span id="mode-label">AXIAL</span>
+        </div>
+        <div class="meta-row dim">
+          <span>SYS</span>
+          <span class="sep">·</span>
+          <span>DATA-VERSE / SCAN</span>
+        </div>
+      </header>
+
+      <aside class="hud hud-tr">
+        <div class="meta-row">
+          <span>SLICE</span>
+          <span id="slice-idx" class="val">024</span>
+          <span class="sep">/</span>
+          <span id="slice-max" class="dim">128</span>
+        </div>
+        <div class="meta-row">
+          <span>PLANE</span>
+          <span id="plane-label" class="val">AXIAL</span>
+        </div>
+        <div class="meta-row">
+          <span>t=</span>
+          <span id="t-value" class="val">00:00:00.000</span>
+        </div>
+        <div class="meta-row">
+          <span>XY</span>
+          <span id="xy-value" class="val">+0.000,+0.000</span>
+        </div>
+        <div class="meta-row dim">
+          <span>Z</span>
+          <span id="z-value" class="val">+0.000</span>
+        </div>
+      </aside>
+
+      <footer class="hud hud-bl">
+        <div class="scale-bar" aria-hidden="true">
+          <span class="scale-line"></span>
+          <span class="scale-ticks">
+            <i></i><i></i><i></i><i></i><i></i>
+          </span>
+        </div>
+        <div class="meta-row">
+          <span>SCALE</span>
+          <span class="val">40 mm</span>
+          <span class="sep">·</span>
+          <span>n=</span>
+          <span id="point-count" class="val">0000</span>
+        </div>
+        <div class="meta-row dim">
+          <span>GRID</span>
+          <span>1.0 / 0.25</span>
+          <span class="sep">·</span>
+          <span>NORM</span>
+          <span>[-1,1]</span>
+        </div>
+      </footer>
+
+      <aside class="hud hud-br">
+        <div class="meta-row">
+          <span>BUF</span>
+          <span id="buf-label" class="val">IDX_STREAM</span>
+        </div>
+        <ul id="idx-stream" class="idx-stream" aria-live="off"></ul>
+        <button type="button" id="ask-mirror" class="hairline-ctrl">
+          ASK_MIRROR
+        </button>
+      </aside>
+
+      <div class="edge-rail" aria-hidden="true">
+        <pre id="edge-numerals" class="edge-numerals"></pre>
+      </div>
+
+      <div class="crosshair" aria-hidden="true">
+        <span class="ch-h"></span>
+        <span class="ch-v"></span>
+      </div>
+    </div>
+
+    <script src="scan.js" type="module"></script>
+  </body>
+</html>
