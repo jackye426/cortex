@@ -5,16 +5,16 @@
 
 ## Product Contract
 
-- **User:** Forma founders — Jack (commercial), Eric (technical), Joe (product) — and the AI agents they already use.
+- **User:** Forma founders — Jack (commercial) and Eric (technical) — and the AI agents they already use.
 - **Job:** Keep a shared, evidence-backed model of what Forma currently knows, believes, has decided, and is building.
 - **Behavior:** A founder or agent can ask “what is true now?”, “what changed?”, or “where are we inconsistent?” and receive cited, current company state.
-- **Acceptance:** A post-cutover GitHub event, Granola meeting, and founder MCP write-back produce immutable cited evidence. Conflicting Jack/Eric/Joe assumptions produce a pending state proposal; an authenticated founder can approve, reject, or refine it; approval atomically creates a new state revision; a subsequent query returns the revised answer and citations.
+- **Acceptance:** A post-cutover GitHub event, Granola meeting, and founder MCP write-back produce immutable cited evidence. Conflicting Jack/Eric assumptions produce a pending state proposal; an authenticated founder can approve, reject, or refine it; approval atomically creates a new state revision; a subsequent query returns the revised answer and citations.
 - **Isolation:** No pre-cutover evidence, personal Cortex/gbrain records, unapproved repositories, unrelated Codex sessions, or personal inbox messages enter Company Brain.
 - **Out of scope:** Claude Chat, Cowork, Claude Code, Slack, ordinary ChatGPT app history, unscoped GitHub, full Gmail, and importing existing Cortex/gbrain records.
 
 ## TLDR
 
-Build a **fresh Company Brain** for Forma by reusing Cortex/gbrain code patterns, not personal schemas or records. First prove one complete GitHub → evidence → proposal → approval → state → cited-query slice. Then connect Granola, Forma-scoped Codex, Joe’s explicit MCP write-back, and finally tightly scoped Gmail. Claude remains deferred.
+Build a **fresh Company Brain** for Forma by reusing Cortex/gbrain code patterns, not personal schemas or records. First prove one complete GitHub → evidence → proposal → approval → state → cited-query slice. Then connect Granola, Forma-scoped Codex, founder MCP write-back, and finally tightly scoped Gmail. Claude remains deferred.
 
 Thesis: [AI-Native Company OS](https://app.notion.com/p/3c6196f5637381a19f5fcd68f33abf7b).
 
@@ -25,7 +25,7 @@ Thesis: [AI-Native Company OS](https://app.notion.com/p/3c6196f5637381a19f5fcd68
 - **Immutable history:** Store each source event/version once, deduplicate deliveries, reject stale updates, and maintain a separate latest-state pointer. Never overwrite history with a stable PR, issue, note, or session ID.
 - **Cutover rule:** Admissibility is based on the source action that changed company reality. Missing/invalid timestamps are rejected before raw persistence. A pre-cutover PR merged post-cutover contributes only the post-cutover merge event and minimal identifiers—not pre-cutover comments/body as evidence.
 - **Approval boundary:** Service identities ingest, agents propose, authenticated founders approve/reject/refine. Interpretive changes never auto-apply. Hard facts such as “PR merged” may auto-create factual state but cannot silently create an interpretation.
-- **V0 founder coverage:** Eric → approved GitHub repos. Jack → Granola, Forma-scoped Codex, and later Gmail. Joe → explicit MCP write-back until a higher-signal product surface is chosen.
+- **V0 founder coverage:** Eric → approved GitHub repos and MCP write-back. Jack → Granola, Forma-scoped Codex, MCP write-back, and later Gmail.
 - **MCP is I/O:** MCP exposes context, changes, evidence, proposals, verdicts, and current state. It is not the canonical store.
 - **Granola:** Use the official API + signed webhooks with a dedicated Forma folder/space and workspace API key. Granola MCP remains investigation-only.
 - **Claude and Slack:** Excluded from V0.
@@ -109,12 +109,12 @@ The product repo may appear locally as `Work companion` (`productName: Forma`). 
   - [ ] 🟥 Use independent company checkpoints; preview count/titles/paths before first write
   - [ ] 🟥 End-to-end: one allowed session → cited evidence; unrelated rollouts remain absent
 
-- [ ] 🟥 **Step 7: Cover Joe and compile cross-founder state**
-  - [ ] 🟥 Give Joe authenticated MCP write-back for product observations, decisions, and proposed state changes
+- [ ] 🟥 **Step 7: Compile cross-founder state**
+  - [ ] 🟥 Give Jack and Eric authenticated MCP write-back for observations, decisions, and proposed state changes
   - [ ] 🟥 Attribute every claim to founder/agent/source while keeping evidence distinct from interpretation
   - [ ] 🟥 Compile evidence → observations → affected topic/entity → proposal; version compiler prompts/rules
   - [ ] 🟥 Never auto-apply interpretive output; retain alternatives, contradictions, and provenance
-  - [ ] 🟥 Golden scenario: conflicting Jack/Eric/Joe assumptions → pending proposal → founder verdict → revised cited answer
+  - [ ] 🟥 Golden scenario: conflicting Jack/Eric assumptions → pending proposal → founder verdict → revised cited answer
 
 - [ ] 🟥 **Step 8: Add tightly scoped Gmail after the core loop works**
   - [ ] 🟥 Reuse Gmail transport/checkpoint patterns with a Forma label as the required scope; domain allowlists may narrow, never widen
