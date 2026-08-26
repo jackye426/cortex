@@ -121,6 +121,31 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  apps/company-brain:
+    dependencies:
+      '@cortex/company-brain':
+        specifier: workspace:*
+        version: link:../../packages/company-brain
+      '@hono/node-server':
+        specifier: ^1.14.4
+        version: 1.19.14(hono@4.12.29)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
+      hono:
+        specifier: ^4.8.3
+        version: 4.12.29
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.10
+        version: 24.13.3
+      tsx:
+        specifier: ^4.20.3
+        version: 4.23.0
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   apps/data-verse:
     dependencies:
       '@cortex/viz-contracts':
@@ -405,6 +430,25 @@ importers:
       '@types/node':
         specifier: ^24.0.10
         version: 24.13.3
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
+  packages/company-brain:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.10
+        version: 24.13.3
+      tsx:
+        specifier: ^4.20.3
+        version: 4.23.0
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -3101,7 +3145,6 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
@@ -4795,7 +4838,6 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:
       zod: 4.4.3
-    optional: true
 
   zod@3.25.76: {}
 

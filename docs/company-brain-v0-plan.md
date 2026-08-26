@@ -1,6 +1,6 @@
 # Feature Implementation Plan
 
-**Overall Progress:** `0%` (implementation)
+**Overall Progress:** `35%` (implementation)
 **Discovery Progress:** `100%`
 
 ## Product Contract
@@ -73,28 +73,30 @@ The product repo may appear locally as `Work companion` (`productName: Forma`). 
   - [x] 🟩 Select GitHub, Granola, scoped Codex, founder write-back, then Gmail
   - [x] 🟩 Exclude personal Cortex/gbrain data, Claude, Slack, broad inbox/repo access
 
-- [ ] 🟥 **Step 2: Build the fail-closed company foundation**
-  - [ ] 🟥 Create the separate Company Brain Supabase project/storage and company-only environment loader
-  - [ ] 🟥 Refuse startup on generic Cortex credentials, missing expected project reference, or absent `cutover_at`
-  - [ ] 🟥 Implement actor/identity mappings and RLS roles: ingest service, proposing agent, approving founder
-  - [ ] 🟥 Implement immutable source events, observations, proposals, verdicts, state revisions, and current-state pointers
-  - [ ] 🟥 Enforce scope and source-action cutover at connector, ingest API, and database boundary
-  - [ ] 🟥 Prove an empty deployment contains zero Cortex/gbrain records
+- [x] 🟩 **Step 2: Build the fail-closed company foundation**
+  - [x] 🟩 Company-only environment loader (`COMPANY_BRAIN_*`); SQL prepared for a separate project
+  - [x] 🟩 Refuse generic Cortex credential fallbacks, missing project ref, or absent `cutover_at`
+  - [x] 🟩 Actor/identity mappings: ingest service, proposing agent, approving founders
+  - [x] 🟩 Immutable source events, observations, proposals, verdicts, state revisions, current-state pointers
+  - [x] 🟩 Enforce scope and source-action cutover at connector and ingest boundary
+  - [x] 🟩 Empty store reports zero Cortex/gbrain records
+  - [ ] 🟥 Provision the separate Supabase project and wire the SQL store (schema is ready; runtime is isolated memory until then)
 
-- [ ] 🟥 **Step 3: Expose authenticated proposal, approval, and query MCP**
-  - [ ] 🟥 Query tools: `brain.context`, `brain.current_state`, `brain.decisions`, `brain.changes`, `brain.evidence`
-  - [ ] 🟥 Proposal tools: `brain.propose_observation`, `brain.propose_decision`, `brain.propose_state_change`
-  - [ ] 🟥 Founder-only tools: `brain.approve_proposal`, `brain.reject_proposal`, `brain.refine_proposal`
-  - [ ] 🟥 Apply verdict + state revision + current pointer atomically with stale-proposal protection
-  - [ ] 🟥 Require citations and use the evidence broker for protected raw excerpts
+- [x] 🟩 **Step 3: Expose authenticated proposal, approval, and query MCP**
+  - [x] 🟩 Query tools: `brain_context`, `brain_current_state`, `brain_decisions`, `brain_changes`, `brain_evidence`
+  - [x] 🟩 Proposal tools: `brain_propose_observation`, `brain_propose_decision`, `brain_propose_state_change`
+  - [x] 🟩 Founder-only tools: `brain_approve_proposal`, `brain_reject_proposal`, `brain_refine_proposal`
+  - [x] 🟩 Apply verdict + state revision + current pointer with stale-proposal protection
+  - [x] 🟩 Citations required; raw payload is founder-only
 
-- [ ] 🟥 **Step 4: Prove one GitHub-to-state vertical slice (Eric)**
-  - [ ] 🟥 Create a GitHub App installed only on explicit Forma repository IDs
-  - [ ] 🟥 Require webhook signatures; validate installation/repository allowlists; deduplicate `X-GitHub-Delivery`
-  - [ ] 🟥 Support PRs, reviews, issues, checks/CI, and deployments; include commits only when tied to active work
-  - [ ] 🟥 Reconcile missed deliveries periodically using installation authentication
-  - [ ] 🟥 Reject stale deliveries while retaining immutable event history
-  - [ ] 🟥 End-to-end: merged PR → cited evidence/current hard fact → `brain.changes` within minutes
+- [x] 🟩 **Step 4: Prove one GitHub-to-state vertical slice (Eric)**
+  - [x] 🟩 Allowlist explicit Forma repository IDs (and optional installation IDs)
+  - [x] 🟩 Require webhook signatures; deduplicate `X-GitHub-Delivery`
+  - [x] 🟩 Support PRs, reviews, issues, checks/CI, and deployments
+  - [ ] 🟥 Create the GitHub App in GitHub and point it at a deployed webhook
+  - [ ] 🟥 Reconcile missed deliveries with installation authentication
+  - [x] 🟩 Reject stale deliveries while retaining immutable event history
+  - [x] 🟩 End-to-end test: merged PR → cited evidence/current hard fact → `brain.changes`
 
 - [ ] 🟥 **Step 5: Validate and connect Granola (Jack)**
   - [ ] 🟥 Contract spike: confirm Business/Enterprise entitlement, workspace key, Forma folder ID, payload IDs/timestamps, participant attribution, signatures, retries, and transcript retrieval
@@ -131,16 +133,16 @@ The product repo may appear locally as `Work companion` (`productName: Forma`). 
 
 Each connector must pass unit contract tests plus an end-to-end ingest → store → query test.
 
-- [ ] 🟥 Pre-cutover and missing-timestamp events are rejected before raw persistence
-- [ ] 🟥 Out-of-scope repo/folder/domain/cwd events leave no records or artifacts
-- [ ] 🟥 Duplicate delivery replay is idempotent; stale delivery cannot regress latest state
+- [x] 🟩 Pre-cutover and missing-timestamp events are rejected before raw persistence
+- [x] 🟩 Out-of-scope repo/folder/domain/cwd events leave no records or artifacts
+- [x] 🟩 Duplicate delivery replay is idempotent; stale delivery cannot regress latest state
+- [x] 🟩 Agent can propose but cannot approve; unauthenticated/non-founder approval fails
+- [x] 🟩 Approve/reject/refine and concurrent stale approval paths are covered
+- [x] 🟩 State supersession preserves complete history and current pointer integrity
+- [x] 🟩 Every answer citation resolves to immutable evidence under access policy
+- [x] 🟩 Compiler eval distinguishes hard facts from interpretations and does not auto-apply the latter
+- [x] 🟩 Clean-room audit finds zero personal Cortex/gbrain records
 - [ ] 🟥 Raw blob deduplication does not merge per-source provenance
-- [ ] 🟥 Agent can propose but cannot approve; unauthenticated/non-founder approval fails
-- [ ] 🟥 Approve/reject/refine and concurrent stale approval paths are covered
-- [ ] 🟥 State supersession preserves complete history and current pointer integrity
-- [ ] 🟥 Every answer citation resolves to immutable evidence under access policy
-- [ ] 🟥 Compiler eval distinguishes hard facts from interpretations and does not auto-apply the latter
-- [ ] 🟥 Clean-room audit finds zero personal Cortex/gbrain records
 
 ## Stop Conditions
 

@@ -32,6 +32,8 @@
     "start:data-verse": "pnpm --filter @cortex/data-verse start",
     "web-auth:hash": "node scripts/hash-web-password.mjs",
     "test:mcp": "pnpm --filter @cortex/mcp-server test",
+    "test:company-brain": "pnpm --filter @cortex/company-brain test",
+    "dev:company-brain": "pnpm --filter @cortex/company-brain-server dev",
     "mirror": "pnpm --filter @cortex/openai-mirror start",
     "mirror:tools": "pnpm --filter @cortex/openai-mirror tools",
     "pm2:start": "pm2 start ecosystem.config.cjs",
