@@ -1,28 +1,60 @@
 # Feature Implementation Plan
 
-**Overall Progress:** `15%`
+**Overall Progress:** `0%` (implementation)  
+**Discovery Progress:** `100%`
 
-User: Forma founders (Jack commercial, Eric technical, Joe product) and the AIs they already use.
-Job: Keep a shared, evidence-backed model of what Forma currently knows, believes, has decided, and is building.
-Behavior: Agents can ask “what is true now / what changed / where are we inconsistent?” and get cited company state, not a personal Cortex dump.
-Acceptance: After cutover, a merged Forma PR, a Granola meeting, and a Forma-scoped Codex session each produce cited evidence; interpretive state changes wait for human approval; nothing older than `cutover_at` and no personal Cortex/gbrain records enter the store.
-Out of scope: Claude Chat / Cowork / Claude Code; Slack; personal inbox / all GitHub repos; importing Cortex or gbrain pages; ordinary ChatGPT app chats (no local transcript).
+## Product Contract
+
+- **User:** Forma founders — Jack (commercial), Eric (technical), Joe (product) — and the AI agents they already use.
+- **Job:** Keep a shared, evidence-backed model of what Forma currently knows, believes, has decided, and is building.
+- **Behavior:** A founder or agent can ask “what is true now?”, “what changed?”, or “where are we inconsistent?” and receive cited, current company state.
+- **Acceptance:** A post-cutover GitHub event, Granola meeting, and founder MCP write-back produce immutable cited evidence. Conflicting Jack/Eric/Joe assumptions produce a pending state proposal; an authenticated founder can approve, reject, or refine it; approval atomically creates a new state revision; a subsequent query returns the revised answer and citations.
+- **Isolation:** No pre-cutover evidence, personal Cortex/gbrain records, unapproved repositories, unrelated Codex sessions, or personal inbox messages enter Company Brain.
+- **Out of scope:** Claude Chat, Cowork, Claude Code, Slack, ordinary ChatGPT app history, unscoped GitHub, full Gmail, and importing existing Cortex/gbrain records.
 
 ## TLDR
 
-Stand up a **fresh Company Brain** for Forma: reuse Cortex/gbrain **code patterns**, never existing personal records. V0 ingests Eric through approved GitHub repos, Jack through Granola + Forma-scoped Codex + tight Gmail, and durable AI conclusions through MCP write-back. The compiler proposes state; humans approve. Claude is deferred.
+Build a **fresh Company Brain** for Forma by reusing Cortex/gbrain code patterns, not personal schemas or records. First prove one complete GitHub → evidence → proposal → approval → state → cited-query slice. Then connect Granola, Forma-scoped Codex, Joe’s explicit MCP write-back, and finally tightly scoped Gmail. Claude remains deferred.
 
 Thesis: [AI-Native Company OS](https://app.notion.com/p/3c6196f5637381a19f5fcd68f33abf7b).
 
 ## Critical Decisions
 
-- **Clean-room store** — separate Supabase/Postgres, credentials, checkpoints, and `cutover_at`. No Cortex import, no “same DB, different `org_id`”. Rationale: personal and company evidence must never mix.
-- **Reuse code, not records** — copy/adapt `CortexStore` epistemic ladder, collector, Gmail/GitHub/Codex adapters, evidence broker, MCP. Rationale: the hard parts already exist; V0 is re-scope + allowlists.
-- **State is the product** — evidence in, proposed transitions out. Auto-apply only hard events (e.g. PR merged). Interpretive changes need approval. Rationale: a Slack-style anecdote must not become truth.
-- **V0 sources (locked)** — GitHub App on approved Forma repos; Granola **API + webhooks** (not Granola MCP); Codex limited to ChatGPT project “Forma” and `emed` cwd; Gmail after those three work, with label/domain/`cutover_at` query. Rationale: highest-signal surfaces already verified locally.
-- **Claude ignored for now** — no Chat, Cowork, or Claude Code ingest in V0. Ordinary ChatGPT app chats stay MCP write-back only (bodies are not local). Rationale: Jack asked to drop Claude; ChatGPT Desktop has no complete local chat archive.
-- **MCP is I/O, not the store** — `brain.context` / `brain.changes` / `brain.propose_*`; Notion is a human-readable projection, not canonical. Rationale: matches the thesis; ChatGPT/Claude remain the reasoning layer.
-- **No Slack in V0** — Jack: Slack is not the best surface.
+- **Clean-room and fail-closed:** Use a separate Supabase/Postgres project, storage, credentials, checkpoints, and `cutover_at`. Company Brain entrypoints accept only `COMPANY_BRAIN_*` configuration, verify the expected project reference, and refuse generic Cortex credential fallbacks.
+- **Company model, not personal model:** Reuse the epistemic concepts and interfaces, but introduce company-native actors, topics/entities, immutable source events, proposals, decisions, and state revisions. Do not reuse intrapersonal tables unchanged.
+- **Immutable history:** Store each source event/version once, deduplicate deliveries, reject stale updates, and maintain a separate latest-state pointer. Never overwrite history with a stable PR, issue, note, or session ID.
+- **Cutover rule:** Admissibility is based on the source action that changed company reality. Missing/invalid timestamps are rejected before raw persistence. A pre-cutover PR merged post-cutover contributes only the post-cutover merge event and minimal identifiers—not pre-cutover comments/body as evidence.
+- **Approval boundary:** Service identities ingest, agents propose, authenticated founders approve/reject/refine. Interpretive changes never auto-apply. Hard facts such as “PR merged” may auto-create factual state but cannot silently create an interpretation.
+- **V0 founder coverage:** Eric → approved GitHub repos. Jack → Granola, Forma-scoped Codex, and later Gmail. Joe → explicit MCP write-back until a higher-signal product surface is chosen.
+- **MCP is I/O:** MCP exposes context, changes, evidence, proposals, verdicts, and current state. It is not the canonical store.
+- **Granola:** Use the official API + signed webhooks with a dedicated Forma folder/space and workspace API key. Granola MCP remains investigation-only.
+- **Claude and Slack:** Excluded from V0.
+- **Notion:** Human-readable projection only; never canonical state or the approval authority.
+
+## State and Proposal Contract
+
+```text
+signed/authorized source event
+  → scope + cutover gate
+  → immutable evidence event
+  → factual observation
+  → compiler or founder proposes change
+  → pending proposal
+  → founder approve | reject | refine
+  → immutable state revision
+  → current-state pointer
+  → cited MCP answer
+```
+
+Minimum durable shapes:
+
+- **Actor:** founder, agent, or ingest service; provider identity mappings; role.
+- **Source event:** source, external event/version ID, actor, source-action time, captured time, immutable payload reference, scope decision, provenance.
+- **Observation:** factual statement, epistemic class, event/evidence links, affected topics/entities.
+- **Proposal:** `pending | approved | rejected | superseded`; immutable proposed payload; proposer; evidence IDs; affected state key; created time.
+- **Verdict:** approver, action, note/refinement, timestamp.
+- **State revision:** topic/entity key, statement, epistemic class, confidence, effective time, supersedes ID, evidence IDs, proposal/verdict IDs.
+- **Current state:** pointer to the effective revision; never an independently mutable claim.
 
 Verified local Codex scopes (do not widen):
 
@@ -31,60 +63,89 @@ Verified local Codex scopes (do not widen):
 | ChatGPT project “Forma” | `~\.codex\.chatgpt-projects\g-p-6a5ce2bd588c8191b36fa21f22def31e` |
 | Engineering cwd `emed` | `Desktop\Current Projects\emed` |
 
-Product repo on disk is named `Work companion` (`productName: Forma`). GitHub App allowlist is the canonical repo list, not the Desktop folder name.
+The product repo may appear locally as `Work companion` (`productName: Forma`). GitHub App installation/repository IDs—not local folder names—define GitHub scope.
 
-## Tasks:
+## Tasks
 
-- [x] 🟩 **Step 1: Lock V0 sources and exclusions**
-  - [x] 🟩 Read Company Brain thesis; treat as fresh org state, not personal Cortex
-  - [x] 🟩 Confirm Eric → GitHub; Jack → Granola, email, ChatGPT/Codex
-  - [x] 🟩 Verify Codex Forma project + `emed` transcripts exist locally
-  - [x] 🟩 Defer Claude Chat / Cowork / Code (no Forma Cowork folder; Chat bodies not local)
+- [x] 🟩 **Step 1: Lock product target, sources, and exclusions**
+  - [x] 🟩 Read the Company Brain thesis and choose a fresh organisational state boundary
+  - [x] 🟩 Verify Forma/`emed` Codex scopes and Claude limitations
+  - [x] 🟩 Select GitHub, Granola, scoped Codex, founder write-back, then Gmail
+  - [x] 🟩 Exclude personal Cortex/gbrain data, Claude, Slack, broad inbox/repo access
 
-- [ ] 🟥 **Step 2: Clean-room store and cutover**
-  - [ ] 🟥 New isolated env (`COMPANY_BRAIN_*`) and empty Supabase project
-  - [ ] 🟥 Reuse `CortexStore` observation / hypothesis / decision / VIR shapes in a company-scoped store
-  - [ ] 🟥 Set `cutover_at`, repo/folder/domain allowlists; refuse any Cortex/gbrain import path
-  - [ ] 🟥 Dry-run: empty tables, no personal records
+- [ ] 🟥 **Step 2: Build the fail-closed company foundation**
+  - [ ] 🟥 Create the separate Company Brain Supabase project/storage and company-only environment loader
+  - [ ] 🟥 Refuse startup on generic Cortex credentials, missing expected project reference, or absent `cutover_at`
+  - [ ] 🟥 Implement actor/identity mappings and RLS roles: ingest service, proposing agent, approving founder
+  - [ ] 🟥 Implement immutable source events, observations, proposals, verdicts, state revisions, and current-state pointers
+  - [ ] 🟥 Enforce scope and source-action cutover at connector, ingest API, and database boundary
+  - [ ] 🟥 Prove an empty deployment contains zero Cortex/gbrain records
 
-- [ ] 🟥 **Step 3: GitHub connector (Eric)**
-  - [ ] 🟥 GitHub App installed only on approved Forma repos (inspire `packages/adapters/github`, do not reuse unscoped PAT scan)
-  - [ ] 🟥 Ingest PRs, reviews, issues, CI, deployments; commits only when tied to active work
-  - [ ] 🟥 Webhooks + periodic reconcile; infer “Eric is working on X” from open PRs/assignments, not commit volume
-  - [ ] 🟥 Dry-run against allowlist; merged PR lands as evidence within minutes
+- [ ] 🟥 **Step 3: Expose authenticated proposal, approval, and query MCP**
+  - [ ] 🟥 Query tools: `brain.context`, `brain.current_state`, `brain.decisions`, `brain.changes`, `brain.evidence`
+  - [ ] 🟥 Proposal tools: `brain.propose_observation`, `brain.propose_decision`, `brain.propose_state_change`
+  - [ ] 🟥 Founder-only tools: `brain.approve_proposal`, `brain.reject_proposal`, `brain.refine_proposal`
+  - [ ] 🟥 Apply verdict + state revision + current pointer atomically with stale-proposal protection
+  - [ ] 🟥 Require citations and use the evidence broker for protected raw excerpts
 
-- [ ] 🟥 **Step 4: Granola ingest (Jack)**
-  - [ ] 🟥 Official Granola API + webhooks into a dedicated Forma space (Business/Enterprise)
-  - [ ] 🟥 Notes / summaries / transcripts as evidence with citations; Granola MCP is investigation-only, not canonical ingest
-  - [ ] 🟥 Dry-run: one meeting → proposed commercial observation, nothing pre-cutover
+- [ ] 🟥 **Step 4: Prove one GitHub-to-state vertical slice (Eric)**
+  - [ ] 🟥 Create a GitHub App installed only on explicit Forma repository IDs
+  - [ ] 🟥 Require webhook signatures; validate installation/repository allowlists; deduplicate `X-GitHub-Delivery`
+  - [ ] 🟥 Support PRs, reviews, issues, checks/CI, and deployments; include commits only when tied to active work
+  - [ ] 🟥 Reconcile missed deliveries periodically using installation authentication
+  - [ ] 🟥 Reject stale deliveries while retaining immutable event history
+  - [ ] 🟥 End-to-end: merged PR → cited evidence/current hard fact → `brain.changes` within minutes
 
-- [ ] 🟥 **Step 5: Codex Forma-scoped ingest (Jack)**
-  - [ ] 🟥 Filter existing `@cortex/adapter-codex` to ChatGPT project “Forma” + `emed` cwd only
-  - [ ] 🟥 Do not ingest other Codex rollouts or ordinary ChatGPT app chats
-  - [ ] 🟥 Dry-run: Forma/emed sessions only; count and titles reviewable before write
+- [ ] 🟥 **Step 5: Validate and connect Granola (Jack)**
+  - [ ] 🟥 Contract spike: confirm Business/Enterprise entitlement, workspace key, Forma folder ID, payload IDs/timestamps, participant attribution, signatures, retries, and transcript retrieval
+  - [ ] 🟥 Register signed folder-filtered webhooks and fetch canonical note/summary/transcript through the API
+  - [ ] 🟥 Treat webhook notifications as triggers; deduplicate/version fetched note content
+  - [ ] 🟥 End-to-end: one Forma meeting → cited commercial observation → pending interpretive proposal
 
-- [ ] 🟥 **Step 6: MCP write-back and query**
-  - [ ] 🟥 Tools: `brain.context`, `brain.current_state`, `brain.decisions`, `brain.changes`, `brain.evidence`, `brain.propose_observation`, `brain.propose_decision`, `brain.propose_state_change`
-  - [ ] 🟥 Proposals enter an approval queue; they do not become company state on write
-  - [ ] 🟥 Point ChatGPT/Cursor MCP at Company Brain (Claude wiring later)
-  - [ ] 🟥 Smoke: explicit “record the durable conclusions” creates a pending proposal with provenance
+- [ ] 🟥 **Step 6: Add the local Forma-scoped Codex collector (Jack)**
+  - [ ] 🟥 Run the collector on Jack’s machine and authenticate it as a limited ingest service
+  - [ ] 🟥 Preselect exact normalized ChatGPT-project/`emed` metadata before opening or uploading JSONL
+  - [ ] 🟥 Reject missing, ambiguous, or out-of-scope metadata; never fall back to “ingest all”
+  - [ ] 🟥 Use independent company checkpoints; preview count/titles/paths before first write
+  - [ ] 🟥 End-to-end: one allowed session → cited evidence; unrelated rollouts remain absent
 
-- [ ] 🟥 **Step 7: State compiler**
-  - [ ] 🟥 Pipeline: evidence → observation → affected topic/person → propose hypothesis / decision / state change → approve/reject/refine → current state
-  - [ ] 🟥 Auto-apply only hard events (e.g. PR merged); interpretive changes always need a human
-  - [ ] 🟥 Test query: “Where are Jack, Eric, and Joe operating from inconsistent assumptions?”
+- [ ] 🟥 **Step 7: Cover Joe and compile cross-founder state**
+  - [ ] 🟥 Give Joe authenticated MCP write-back for product observations, decisions, and proposed state changes
+  - [ ] 🟥 Attribute every claim to founder/agent/source while keeping evidence distinct from interpretation
+  - [ ] 🟥 Compile evidence → observations → affected topic/entity → proposal; version compiler prompts/rules
+  - [ ] 🟥 Never auto-apply interpretive output; retain alternatives, contradictions, and provenance
+  - [ ] 🟥 Golden scenario: conflicting Jack/Eric/Joe assumptions → pending proposal → founder verdict → revised cited answer
 
-- [ ] 🟥 **Step 8: Gmail (after GitHub, Granola, Codex)**
-  - [ ] 🟥 Reuse `@cortex/adapter-gmail` with a tight query: Forma label and/or approved domains, one account, `cutover_at`
-  - [ ] 🟥 No full personal inbox
-  - [ ] 🟥 Dry-run: three envelopes, all in-scope
+- [ ] 🟥 **Step 8: Add tightly scoped Gmail after the core loop works**
+  - [ ] 🟥 Reuse Gmail transport/checkpoint patterns with a Forma label as the required scope; domain allowlists may narrow, never widen
+  - [ ] 🟥 Apply the same predicate to initial listing and every Gmail History message
+  - [ ] 🟥 Reject missing headers/labels and pre-cutover messages; never ingest the full personal inbox
+  - [ ] 🟥 Dry-run and review representative included/excluded threads before write
 
-- [ ] 🟥 **Step 9: Notion projection**
-  - [ ] 🟥 Human-readable “Current Company State” page fed from the store
-  - [ ] 🟥 Notion is a projection, not the canonical database
+- [ ] 🟥 **Step 9: Add the Notion projection**
+  - [ ] 🟥 Publish a human-readable “Current Company State” from approved state revisions
+  - [ ] 🟥 Show revision time, confidence, owner, and evidence links
+  - [ ] 🟥 Confirm Notion edits cannot mutate canonical state
 
-## Stop conditions
+## Verification Gates
 
-- Any evidence predating `cutover_at`, or any Cortex/gbrain personal page, is a bug.
-- Claude ingest, Slack, unscoped GitHub, or full Gmail are out of this plan.
-- No implementation until Jack says implement; this file is the contract.
+Each connector must pass unit contract tests plus an end-to-end ingest → store → query test.
+
+- [ ] 🟥 Pre-cutover and missing-timestamp events are rejected before raw persistence
+- [ ] 🟥 Out-of-scope repo/folder/domain/cwd events leave no records or artifacts
+- [ ] 🟥 Duplicate delivery replay is idempotent; stale delivery cannot regress latest state
+- [ ] 🟥 Raw blob deduplication does not merge per-source provenance
+- [ ] 🟥 Agent can propose but cannot approve; unauthenticated/non-founder approval fails
+- [ ] 🟥 Approve/reject/refine and concurrent stale approval paths are covered
+- [ ] 🟥 State supersession preserves complete history and current pointer integrity
+- [ ] 🟥 Every answer citation resolves to immutable evidence under access policy
+- [ ] 🟥 Compiler eval distinguishes hard facts from interpretations and does not auto-apply the latter
+- [ ] 🟥 Clean-room audit finds zero personal Cortex/gbrain records
+
+## Stop Conditions
+
+- Any personal Cortex/gbrain record, pre-cutover evidence, or out-of-scope source artifact enters Company Brain.
+- Any Company Brain service can start using generic/fallback Cortex credentials.
+- Any agent can approve its own interpretive proposal or bypass founder authentication.
+- Any connector widens scope when metadata, labels, signatures, or timestamps are missing.
+- Claude ingest, Slack, broad GitHub/Gmail access, or ordinary ChatGPT history enters V0.
