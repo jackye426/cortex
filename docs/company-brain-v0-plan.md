@@ -1,6 +1,6 @@
 # Feature Implementation Plan
 
-**Overall Progress:** `0%` (implementation)  
+**Overall Progress:** `0%` (implementation)
 **Discovery Progress:** `100%`
 
 ## Product Contract
