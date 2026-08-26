@@ -23,9 +23,13 @@ Set `COMPANY_BRAIN_STORE=memory` for local tests only. Production refuses
 ephemeral mode and requires `COMPANY_BRAIN_STORE=supabase` with the dedicated
 Company Brain project URL, service key, and matching project ref.
 
-`apps/company-brain/migrations/001_init.sql` is for a **separate** Supabase
-project; do not apply it to Cortex. It includes RLS policies and transactional
-RPCs for source-event ordering, hard facts, and founder verdicts.
+`apps/company-brain/migrations/` is for a **separate** Supabase project; apply
+the SQL files in numeric order and never apply them to Cortex. The migrations
+include an upgrade path, RLS policies, and transactional RPCs for complete
+event ingestion, source ordering, hard facts, and founder verdicts.
+The hardening migration moves any legacy partial delivery into
+`company_brain_private.cb_upgrade_replay_events` and frees its delivery ID for
+manual GitHub redelivery.
 
 ## Tokens / roles
 

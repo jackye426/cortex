@@ -72,81 +72,44 @@ export class CompanyBrain {
     provenance: { deliveryId: string; eventName: string },
   ): Promise<IngestResult> {
     const capturedAt = new Date().toISOString();
-    const recorded = await this.store.recordEvent({
-      source: "github",
-      externalEventId: mapped.externalEventId,
-      entityKey: mapped.entityKey,
-      versionKey: mapped.versionKey,
-      actorId: "ingest",
-      sourceActionAt: mapped.sourceActionAt,
-      capturedAt,
-      payload: mapped.payload,
-      scopeDecision: "accepted",
-      provenance: { ...provenance, repo: mapped.repoFullName },
-    });
-    const { event, duplicate, stale } = recorded;
-    if (duplicate) {
-      return { accepted: true, duplicate: true, stale: false, event };
-    }
-
-    if (stale) {
-      return { accepted: true, duplicate: false, stale: true, event };
-    }
-
-    const observation = await this.store.insertObservation({
+    const result = await this.store.ingestMappedEventAtomic({
+      event: {
+        source: "github",
+        externalEventId: mapped.externalEventId,
+        entityKey: mapped.entityKey,
+        versionKey: mapped.versionKey,
+        actorId: "ingest",
+        sourceActionAt: mapped.sourceActionAt,
+        capturedAt,
+        payload: mapped.payload,
+        scopeDecision: "accepted",
+        provenance: { ...provenance, repo: mapped.repoFullName },
+      },
       statement: mapped.statement,
       epistemicClass: mapped.epistemicClass,
-      eventId: event.id,
-      evidenceIds: [event.id],
-      topicKeys: [mapped.stateKey],
-      actorId: "ingest",
-      createdAt: capturedAt,
+      stateKey: mapped.stateKey,
+      autoApply: mapped.autoApply,
+      proposal:
+        mapped.classification === "observation"
+          ? {
+              idempotencyKey: `github:${mapped.externalEventId}:state`,
+              statement: mapped.statement,
+              confidence: 0.4,
+              payload: {
+                kind: "github_working_on",
+                repo: mapped.repoFullName,
+              },
+            }
+          : null,
     });
-
-    if (mapped.autoApply && mapped.epistemicClass === "fact") {
-      const appliedRevision = await this.store.applyHardFactAtomic({
-        stateKey: mapped.stateKey,
-        statement: mapped.statement,
-        evidenceIds: [event.id, observation.id],
-        effectiveAt: mapped.sourceActionAt,
-        createdAt: capturedAt,
-      });
-      return {
-        accepted: true,
-        duplicate: false,
-        stale: false,
-        event,
-        observation,
-        appliedRevision,
-      };
-    }
-
-    const proposal =
-      mapped.classification === "observation"
-        ? await this.store.insertProposal({
-            status: "pending",
-            stateKey: mapped.stateKey,
-            statement: mapped.statement,
-            epistemicClass: "interpretation",
-            confidence: 0.4,
-            proposerId: "ingest",
-            idempotencyKey: `github:${mapped.externalEventId}:state`,
-            evidenceIds: [event.id, observation.id],
-            payload: {
-              kind: "github_working_on",
-              repo: mapped.repoFullName,
-            },
-            createdAt: capturedAt,
-          })
-        : undefined;
-
     return {
       accepted: true,
-      duplicate: false,
-      stale: false,
-      event,
-      observation,
-      proposal,
+      duplicate: result.duplicate,
+      stale: result.stale,
+      event: result.event,
+      observation: result.observation,
+      proposal: result.proposal,
+      appliedRevision: result.appliedRevision,
     };
   }
 

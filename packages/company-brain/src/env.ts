@@ -42,6 +42,11 @@ function strongSecret(env: NodeJS.Dict<string>, key: string): string {
   if (Buffer.byteLength(value, "utf8") < 32) {
     throw new CompanyBrainConfigError(`${key} must be at least 32 bytes`);
   }
+  if (new Set(value).size < 12) {
+    throw new CompanyBrainConfigError(
+      `${key} must contain at least 12 distinct characters`,
+    );
+  }
   return value;
 }
 

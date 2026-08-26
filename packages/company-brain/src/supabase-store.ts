@@ -10,6 +10,8 @@ import type {
   ApplyHardFactInput,
   CompanyBrainStore,
   DecideProposalInput,
+  IngestMappedEventInput,
+  IngestMappedEventResult,
 } from "./store.js";
 
 type Row = Record<string, unknown>;
@@ -134,6 +136,51 @@ export class SupabaseCompanyBrainStore implements CompanyBrainStore {
     };
   }
 
+  async ingestMappedEventAtomic(
+    input: IngestMappedEventInput,
+  ): Promise<IngestMappedEventResult> {
+    const { data, error } = await this.client.rpc("cb_ingest_mapped_event", {
+      p_id: input.event.id ?? null,
+      p_source: input.event.source,
+      p_external_event_id: input.event.externalEventId,
+      p_entity_key: input.event.entityKey,
+      p_version_key: input.event.versionKey,
+      p_actor_id: input.event.actorId,
+      p_source_action_at: input.event.sourceActionAt,
+      p_captured_at: input.event.capturedAt,
+      p_payload: input.event.payload,
+      p_scope_decision: input.event.scopeDecision,
+      p_reject_reason: input.event.rejectReason ?? null,
+      p_provenance: input.event.provenance,
+      p_statement: input.statement,
+      p_epistemic_class: input.epistemicClass,
+      p_state_key: input.stateKey,
+      p_auto_apply: input.autoApply,
+      p_proposal_idempotency_key: input.proposal?.idempotencyKey ?? null,
+      p_proposal_statement: input.proposal?.statement ?? null,
+      p_proposal_confidence: input.proposal?.confidence ?? null,
+      p_proposal_payload: input.proposal?.payload ?? null,
+    });
+    throwIf(error, "ingest mapped event");
+    const result = object(data);
+    return {
+      event: eventFrom(object(result.event)),
+      duplicate: result.duplicate === true,
+      stale: result.stale === true,
+      ...(result.observation
+        ? { observation: observationFrom(object(result.observation)) }
+        : {}),
+      ...(result.proposal
+        ? { proposal: proposalFrom(object(result.proposal)) }
+        : {}),
+      ...(result.applied_revision
+        ? {
+            appliedRevision: revisionFrom(object(result.applied_revision)),
+          }
+        : {}),
+    };
+  }
+
   async getEvent(id: string): Promise<SourceEvent | undefined> {
     const { data, error } = await this.client
       .from("cb_source_events")
@@ -195,7 +242,16 @@ export class SupabaseCompanyBrainStore implements CompanyBrainStore {
       })
       .select("*")
       .single();
-    throwIf(error, "insert observation");
+    if (error) {
+      const { data: existing, error: findError } = await this.client
+        .from("cb_observations")
+        .select("*")
+        .eq("event_id", row.eventId)
+        .maybeSingle();
+      throwIf(findError, "find observation after insert race");
+      if (existing) return observationFrom(existing as Row);
+      throw new Error(`insert observation: ${error.message}`);
+    }
     return observationFrom(data as Row);
   }
 

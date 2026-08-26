@@ -71,6 +71,14 @@ describe("loadCompanyBrainConfig", () => {
       () => loadCompanyBrainConfig({ ...base, COMPANY_BRAIN_CUTOVER_AT: "" }),
       CompanyBrainConfigError,
     );
+    assert.throws(
+      () =>
+        loadCompanyBrainConfig({
+          ...base,
+          COMPANY_BRAIN_AGENT_TOKEN: "a".repeat(64),
+        }),
+      /distinct characters/,
+    );
   });
 
   it("resolves founder and agent tokens", () => {

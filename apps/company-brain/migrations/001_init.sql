@@ -48,7 +48,7 @@ create table if not exists public.cb_observations (
   statement text not null,
   epistemic_class text not null
     check (epistemic_class in ('fact', 'observation', 'interpretation')),
-  event_id uuid not null references public.cb_source_events (id),
+  event_id uuid not null unique references public.cb_source_events (id),
   evidence_ids text[] not null default '{}',
   topic_keys text[] not null default '{}',
   actor_id text references public.cb_actors (id),
@@ -128,9 +128,6 @@ grant company_brain_ingest, company_brain_agent, company_brain_founder
   to authenticator;
 grant usage on schema public
   to company_brain_ingest, company_brain_agent, company_brain_founder;
-grant usage, select on all sequences in schema public
-  to company_brain_ingest, company_brain_agent, company_brain_founder;
-
 revoke all on public.cb_actors,
   public.cb_source_events,
   public.cb_observations,
@@ -140,28 +137,17 @@ revoke all on public.cb_actors,
   public.cb_current_state
 from anon, authenticated;
 
-grant select on public.cb_actors
-  to company_brain_ingest, company_brain_agent, company_brain_founder;
-grant select, insert, update on public.cb_source_events
-  to company_brain_ingest;
-grant select, insert on public.cb_observations
-  to company_brain_ingest, company_brain_agent, company_brain_founder;
-grant select on public.cb_source_events
-  to company_brain_agent, company_brain_founder;
-grant select, insert on public.cb_proposals
-  to company_brain_ingest, company_brain_agent, company_brain_founder;
-grant update on public.cb_proposals
-  to company_brain_founder;
-grant select, insert on public.cb_verdicts
-  to company_brain_founder;
-grant select on public.cb_verdicts
-  to company_brain_agent;
-grant select on public.cb_state_revisions, public.cb_current_state
-  to company_brain_agent, company_brain_founder;
-grant insert on public.cb_state_revisions
-  to company_brain_ingest, company_brain_founder;
-grant insert, update on public.cb_current_state
-  to company_brain_ingest, company_brain_founder;
+-- Data API roles are read-only. All mutation goes through the authenticated
+-- server and transactional RPCs, preventing clients from forging evidence,
+-- verdicts, or current-state pointers.
+grant select on public.cb_actors,
+  public.cb_source_events,
+  public.cb_observations,
+  public.cb_proposals,
+  public.cb_verdicts,
+  public.cb_state_revisions,
+  public.cb_current_state
+to company_brain_agent, company_brain_founder;
 
 alter table public.cb_actors enable row level security;
 alter table public.cb_source_events enable row level security;
@@ -172,64 +158,28 @@ alter table public.cb_state_revisions enable row level security;
 alter table public.cb_current_state enable row level security;
 
 create policy cb_actors_read on public.cb_actors for select
-  to company_brain_ingest, company_brain_agent, company_brain_founder
+  to company_brain_agent, company_brain_founder
   using (true);
 
-create policy cb_events_ingest_read on public.cb_source_events for select
-  to company_brain_ingest using (true);
-create policy cb_events_ingest_insert on public.cb_source_events for insert
-  to company_brain_ingest with check (actor_id = 'ingest');
-create policy cb_events_ingest_update on public.cb_source_events for update
-  to company_brain_ingest using (true) with check (true);
 create policy cb_events_agent_read on public.cb_source_events for select
   to company_brain_agent, company_brain_founder using (true);
 
 create policy cb_observations_read on public.cb_observations for select
-  to company_brain_ingest, company_brain_agent, company_brain_founder
+  to company_brain_agent, company_brain_founder
   using (true);
-create policy cb_observations_ingest_insert on public.cb_observations for insert
-  to company_brain_ingest with check (actor_id = 'ingest');
-create policy cb_observations_agent_insert on public.cb_observations for insert
-  to company_brain_agent with check (actor_id = 'agent');
-create policy cb_observations_founder_insert on public.cb_observations for insert
-  to company_brain_founder with check (actor_id in ('jack', 'eric'));
 
 create policy cb_proposals_read on public.cb_proposals for select
-  to company_brain_ingest, company_brain_agent, company_brain_founder
+  to company_brain_agent, company_brain_founder
   using (true);
-create policy cb_proposals_ingest_insert on public.cb_proposals for insert
-  to company_brain_ingest with check (proposer_id = 'ingest');
-create policy cb_proposals_agent_insert on public.cb_proposals for insert
-  to company_brain_agent with check (proposer_id = 'agent');
-create policy cb_proposals_founder_insert on public.cb_proposals for insert
-  to company_brain_founder with check (proposer_id in ('jack', 'eric'));
-create policy cb_proposals_founder_update on public.cb_proposals for update
-  to company_brain_founder using (true) with check (true);
 
-create policy cb_verdicts_founder_read on public.cb_verdicts for select
-  to company_brain_founder using (true);
-create policy cb_verdicts_agent_read on public.cb_verdicts for select
-  to company_brain_agent using (true);
-create policy cb_verdicts_founder_insert on public.cb_verdicts for insert
-  to company_brain_founder with check (approver_id in ('jack', 'eric'));
+create policy cb_verdicts_read on public.cb_verdicts for select
+  to company_brain_agent, company_brain_founder using (true);
 
 create policy cb_revisions_read on public.cb_state_revisions for select
   to company_brain_agent, company_brain_founder using (true);
-create policy cb_revisions_ingest_insert on public.cb_state_revisions for insert
-  to company_brain_ingest with check (epistemic_class = 'fact');
-create policy cb_revisions_founder_insert on public.cb_state_revisions for insert
-  to company_brain_founder with check (true);
 
 create policy cb_current_read on public.cb_current_state for select
   to company_brain_agent, company_brain_founder using (true);
-create policy cb_current_ingest_insert on public.cb_current_state for insert
-  to company_brain_ingest with check (true);
-create policy cb_current_ingest_update on public.cb_current_state for update
-  to company_brain_ingest using (true) with check (true);
-create policy cb_current_founder_insert on public.cb_current_state for insert
-  to company_brain_founder with check (true);
-create policy cb_current_founder_update on public.cb_current_state for update
-  to company_brain_founder using (true) with check (true);
 
 -- Versioned source-event write. The entity advisory lock makes stale ordering,
 -- the one-latest invariant, and delivery deduplication one transaction.
@@ -300,6 +250,97 @@ begin
 end
 $$;
 
+-- Complete mapped-event ingestion in one transaction. A committed delivery
+-- always has its observation and either its proposal or hard-fact revision.
+create or replace function public.cb_ingest_mapped_event(
+  p_id uuid,
+  p_source text,
+  p_external_event_id text,
+  p_entity_key text,
+  p_version_key text,
+  p_actor_id text,
+  p_source_action_at timestamptz,
+  p_captured_at timestamptz,
+  p_payload jsonb,
+  p_scope_decision text,
+  p_reject_reason text,
+  p_provenance jsonb,
+  p_statement text,
+  p_epistemic_class text,
+  p_state_key text,
+  p_auto_apply boolean,
+  p_proposal_idempotency_key text,
+  p_proposal_statement text,
+  p_proposal_confidence real,
+  p_proposal_payload jsonb
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  v_recorded jsonb;
+  v_event public.cb_source_events%rowtype;
+  v_observation public.cb_observations%rowtype;
+  v_proposal public.cb_proposals%rowtype;
+  v_revision jsonb;
+begin
+  -- State lock is always first across ingestion, hard facts, and approval.
+  perform pg_advisory_xact_lock(hashtext(p_state_key));
+  v_recorded := public.cb_record_source_event(
+    p_id, p_source, p_external_event_id, p_entity_key, p_version_key,
+    p_actor_id, p_source_action_at, p_captured_at, p_payload,
+    p_scope_decision, p_reject_reason, p_provenance
+  );
+  v_event := jsonb_populate_record(null::public.cb_source_events, v_recorded->'event');
+  if (v_recorded->>'duplicate')::boolean or (v_recorded->>'stale')::boolean then
+    return v_recorded;
+  end if;
+
+  insert into public.cb_observations (
+    statement, epistemic_class, event_id, evidence_ids, topic_keys,
+    actor_id, created_at
+  ) values (
+    p_statement, p_epistemic_class, v_event.id, array[v_event.id::text],
+    array[p_state_key], p_actor_id, p_captured_at
+  )
+  on conflict (event_id) do update set event_id = excluded.event_id
+  returning * into v_observation;
+
+  if p_auto_apply and p_epistemic_class = 'fact' then
+    v_revision := public.cb_apply_hard_fact(
+      p_state_key, p_statement,
+      array[v_event.id::text, v_observation.id::text],
+      p_source_action_at, p_captured_at
+    );
+    return v_recorded || jsonb_build_object(
+      'observation', to_jsonb(v_observation),
+      'applied_revision', v_revision
+    );
+  end if;
+
+  if p_proposal_idempotency_key is not null then
+    insert into public.cb_proposals (
+      status, state_key, statement, epistemic_class, confidence, proposer_id,
+      idempotency_key, evidence_ids, payload, created_at
+    ) values (
+      'pending', p_state_key, p_proposal_statement, 'interpretation',
+      p_proposal_confidence, 'ingest', p_proposal_idempotency_key,
+      array[v_event.id::text, v_observation.id::text],
+      coalesce(p_proposal_payload, '{}'::jsonb), p_captured_at
+    )
+    on conflict (proposer_id, idempotency_key)
+      do update set idempotency_key = excluded.idempotency_key
+    returning * into v_proposal;
+  end if;
+
+  return v_recorded || jsonb_build_object(
+    'observation', to_jsonb(v_observation),
+    'proposal', case when v_proposal.id is null then null else to_jsonb(v_proposal) end
+  );
+end
+$$;
+
 -- Atomic founder verdict. Called only by the server's service role; all input
 -- is checked again inside the transaction.
 create or replace function public.cb_decide_proposal(
@@ -320,6 +361,7 @@ declare
   v_revision public.cb_state_revisions%rowtype;
   v_previous uuid;
   v_statement text;
+  v_state_key text;
 begin
   if p_action not in ('approve', 'reject', 'refine') then
     raise exception 'invalid_action';
@@ -331,11 +373,16 @@ begin
     raise exception 'approver_not_found';
   end if;
 
+  select state_key into v_state_key
+  from public.cb_proposals
+  where id = p_proposal_id;
+  if not found then raise exception 'proposal_not_found'; end if;
+  perform pg_advisory_xact_lock(hashtext(v_state_key));
+
   select * into v_proposal
   from public.cb_proposals
   where id = p_proposal_id
   for update;
-  if not found then raise exception 'proposal_not_found'; end if;
   if v_proposal.status <> 'pending' then
     raise exception 'stale_proposal:%', v_proposal.status;
   end if;
@@ -359,7 +406,6 @@ begin
     return jsonb_build_object('proposal', to_jsonb(v_proposal), 'revision', null);
   end if;
 
-  perform pg_advisory_xact_lock(hashtext(v_proposal.state_key));
   select revision_id into v_previous
   from public.cb_current_state where state_key = v_proposal.state_key;
   v_statement := case
@@ -442,6 +488,11 @@ revoke execute on function public.cb_record_source_event(
   uuid, text, text, text, text, text, timestamptz, timestamptz,
   jsonb, text, text, jsonb
 ) from public, anon, authenticated;
+revoke execute on function public.cb_ingest_mapped_event(
+  uuid, text, text, text, text, text, timestamptz, timestamptz,
+  jsonb, text, text, jsonb, text, text, text, boolean,
+  text, text, real, jsonb
+) from public, anon, authenticated;
 grant execute on function public.cb_decide_proposal(
   uuid, text, text, text, text, timestamptz
 ) to service_role;
@@ -451,4 +502,9 @@ grant execute on function public.cb_apply_hard_fact(
 grant execute on function public.cb_record_source_event(
   uuid, text, text, text, text, text, timestamptz, timestamptz,
   jsonb, text, text, jsonb
+) to service_role;
+grant execute on function public.cb_ingest_mapped_event(
+  uuid, text, text, text, text, text, timestamptz, timestamptz,
+  jsonb, text, text, jsonb, text, text, text, boolean,
+  text, text, real, jsonb
 ) to service_role;

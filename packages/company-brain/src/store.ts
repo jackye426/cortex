@@ -28,10 +28,36 @@ export interface ApplyHardFactInput {
   createdAt: string;
 }
 
+export interface IngestMappedEventInput {
+  event: Omit<SourceEvent, "id" | "latestForEntity"> & { id?: string };
+  statement: string;
+  epistemicClass: "fact" | "observation";
+  stateKey: string;
+  autoApply: boolean;
+  proposal: {
+    idempotencyKey: string;
+    statement: string;
+    confidence: number;
+    payload: Record<string, unknown>;
+  } | null;
+}
+
+export interface IngestMappedEventResult {
+  event: SourceEvent;
+  duplicate: boolean;
+  stale: boolean;
+  observation?: Observation;
+  proposal?: Proposal;
+  appliedRevision?: StateRevision;
+}
+
 export interface CompanyBrainStore {
   recordEvent(
     event: Omit<SourceEvent, "id" | "latestForEntity"> & { id?: string },
   ): Awaitable<{ event: SourceEvent; duplicate: boolean; stale: boolean }>;
+  ingestMappedEventAtomic(
+    input: IngestMappedEventInput,
+  ): Awaitable<IngestMappedEventResult>;
   getEvent(id: string): Awaitable<SourceEvent | undefined>;
   findEventByExternalId(
     source: string,
@@ -97,6 +123,51 @@ export class MemoryCompanyBrainStore implements CompanyBrainStore {
     return { event: row, duplicate: false, stale };
   }
 
+  ingestMappedEventAtomic(
+    input: IngestMappedEventInput,
+  ): IngestMappedEventResult {
+    const recorded = this.recordEvent(input.event);
+    if (recorded.duplicate || recorded.stale) return recorded;
+    const now = input.event.capturedAt;
+    const observation = this.insertObservation({
+      statement: input.statement,
+      epistemicClass: input.epistemicClass,
+      eventId: recorded.event.id,
+      evidenceIds: [recorded.event.id],
+      topicKeys: [input.stateKey],
+      actorId: input.event.actorId,
+      createdAt: now,
+    });
+    if (input.autoApply && input.epistemicClass === "fact") {
+      return {
+        ...recorded,
+        observation,
+        appliedRevision: this.applyHardFactAtomic({
+          stateKey: input.stateKey,
+          statement: input.statement,
+          evidenceIds: [recorded.event.id, observation.id],
+          effectiveAt: input.event.sourceActionAt,
+          createdAt: now,
+        }),
+      };
+    }
+    const proposal = input.proposal
+      ? this.insertProposal({
+          status: "pending",
+          stateKey: input.stateKey,
+          statement: input.proposal.statement,
+          epistemicClass: "interpretation",
+          confidence: input.proposal.confidence,
+          proposerId: "ingest",
+          idempotencyKey: input.proposal.idempotencyKey,
+          evidenceIds: [recorded.event.id, observation.id],
+          payload: input.proposal.payload,
+          createdAt: now,
+        })
+      : undefined;
+    return { ...recorded, observation, proposal };
+  }
+
   getEvent(id: string): SourceEvent | undefined {
     return this.events.get(id);
   }
@@ -126,6 +197,10 @@ export class MemoryCompanyBrainStore implements CompanyBrainStore {
   insertObservation(
     row: Omit<Observation, "id"> & { id?: string },
   ): Observation {
+    const existing = [...this.observations.values()].find(
+      (observation) => observation.eventId === row.eventId,
+    );
+    if (existing) return existing;
     const observation: Observation = { ...row, id: row.id ?? randomUUID() };
     this.observations.set(observation.id, observation);
     return observation;
