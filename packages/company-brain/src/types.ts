@@ -32,6 +32,7 @@ export interface Observation {
   statement: string;
   epistemicClass: EpistemicClass;
   eventId: string;
+  evidenceIds: string[];
   topicKeys: string[];
   actorId: string | null;
   createdAt: string;
@@ -45,6 +46,7 @@ export interface Proposal {
   epistemicClass: EpistemicClass;
   confidence: number;
   proposerId: string;
+  idempotencyKey: string;
   evidenceIds: string[];
   payload: Record<string, unknown>;
   createdAt: string;

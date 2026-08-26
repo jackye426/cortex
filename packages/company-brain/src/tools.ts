@@ -3,15 +3,16 @@ import { z } from "zod";
 import type { Actor } from "./types.js";
 import { CompanyBrain, CompanyBrainError } from "./service.js";
 
-function textResult(data: unknown) {
+function textResult(data: unknown, isError = false) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+    ...(isError ? { isError: true } : {}),
   };
 }
 
 function fail(error: unknown) {
   if (error instanceof CompanyBrainError) {
-    return textResult({ error: error.code, detail: error.message });
+    return textResult({ error: error.code, detail: error.message }, true);
   }
   throw error;
 }
@@ -32,7 +33,7 @@ export function createCompanyBrainMcpServer(
         "Return current company state, pending proposals, and contradictory assumptions.",
       inputSchema: {},
     },
-    async () => textResult(brain.context()),
+    async () => textResult(await brain.context()),
   );
 
   server.registerTool(
@@ -41,7 +42,7 @@ export function createCompanyBrainMcpServer(
       description: "Return effective company state revisions with citations.",
       inputSchema: {},
     },
-    async () => textResult(brain.currentState()),
+    async () => textResult(await brain.currentState()),
   );
 
   server.registerTool(
@@ -50,7 +51,7 @@ export function createCompanyBrainMcpServer(
       description: "Return approved interpretive state revisions.",
       inputSchema: {},
     },
-    async () => textResult(brain.decisions()),
+    async () => textResult(await brain.decisions()),
   );
 
   server.registerTool(
@@ -59,7 +60,7 @@ export function createCompanyBrainMcpServer(
       description: "Return recent source events and state revisions.",
       inputSchema: {},
     },
-    async () => textResult(brain.changes()),
+    async () => textResult(await brain.changes()),
   );
 
   server.registerTool(
@@ -73,7 +74,7 @@ export function createCompanyBrainMcpServer(
     },
     async ({ eventId }) => {
       try {
-        return textResult(brain.evidence(actor, eventId));
+        return textResult(await brain.evidence(eventId));
       } catch (error) {
         return fail(error);
       }
@@ -85,16 +86,18 @@ export function createCompanyBrainMcpServer(
     {
       description: "Record a factual observation from the current actor.",
       inputSchema: {
+        requestId: z.string().min(1),
         statement: z.string(),
         evidenceIds: z.array(z.string()).default([]),
         topicKeys: z.array(z.string()).default([]),
       },
     },
-    async ({ statement, evidenceIds, topicKeys }) => {
+    async ({ requestId, statement, evidenceIds, topicKeys }) => {
       try {
         return textResult(
-          brain.proposeObservation({
+          await brain.proposeObservation({
             actor,
+            requestId,
             statement,
             evidenceIds,
             topicKeys,
@@ -111,15 +114,22 @@ export function createCompanyBrainMcpServer(
     {
       description: "Propose an interpretive company decision. Does not apply until approved.",
       inputSchema: {
+        requestId: z.string().min(1),
         stateKey: z.string(),
         statement: z.string(),
-        evidenceIds: z.array(z.string()),
+        evidenceIds: z.array(z.string()).min(1),
       },
     },
-    async ({ stateKey, statement, evidenceIds }) => {
+    async ({ requestId, stateKey, statement, evidenceIds }) => {
       try {
         return textResult(
-          brain.proposeDecision({ actor, stateKey, statement, evidenceIds }),
+          await brain.proposeDecision({
+            actor,
+            requestId,
+            stateKey,
+            statement,
+            evidenceIds,
+          }),
         );
       } catch (error) {
         return fail(error);
@@ -132,17 +142,19 @@ export function createCompanyBrainMcpServer(
     {
       description: "Propose a company state change. Enters the approval queue.",
       inputSchema: {
+        requestId: z.string().min(1),
         stateKey: z.string(),
         statement: z.string(),
-        evidenceIds: z.array(z.string()),
+        evidenceIds: z.array(z.string()).min(1),
         confidence: z.number().min(0).max(1).optional(),
       },
     },
-    async ({ stateKey, statement, evidenceIds, confidence }) => {
+    async ({ requestId, stateKey, statement, evidenceIds, confidence }) => {
       try {
         return textResult(
-          brain.proposeStateChange({
+          await brain.proposeStateChange({
             actor,
+            requestId,
             stateKey,
             statement,
             evidenceIds,
@@ -167,7 +179,7 @@ export function createCompanyBrainMcpServer(
     async ({ proposalId, note }) => {
       try {
         return textResult(
-          brain.decideProposal({
+          await brain.decideProposal({
             actor,
             proposalId,
             action: "approve",
@@ -192,7 +204,7 @@ export function createCompanyBrainMcpServer(
     async ({ proposalId, note }) => {
       try {
         return textResult(
-          brain.decideProposal({
+          await brain.decideProposal({
             actor,
             proposalId,
             action: "reject",
@@ -218,7 +230,7 @@ export function createCompanyBrainMcpServer(
     async ({ proposalId, refinementStatement, note }) => {
       try {
         return textResult(
-          brain.decideProposal({
+          await brain.decideProposal({
             actor,
             proposalId,
             action: "refine",

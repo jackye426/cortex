@@ -38,13 +38,13 @@ export class CompanyBrain {
     readonly store: CompanyBrainStore,
   ) {}
 
-  ingestGithubWebhook(input: {
+  async ingestGithubWebhook(input: {
     eventName: string;
     deliveryId: string | undefined;
     rawBody: string;
     signatureHeader: string | undefined;
     payload: unknown;
-  }): IngestResult {
+  }): Promise<IngestResult> {
     const mapped = mapGithubWebhook({ config: this.config, ...input });
     if (!mapped.ok) {
       return { accepted: false, code: mapped.code, detail: mapped.detail };
@@ -55,7 +55,7 @@ export class CompanyBrain {
     });
   }
 
-  private commitMappedGithub(
+  private async commitMappedGithub(
     mapped: {
       externalEventId: string;
       entityKey: string;
@@ -70,54 +70,47 @@ export class CompanyBrain {
       autoApply: boolean;
     },
     provenance: { deliveryId: string; eventName: string },
-  ): IngestResult {
-    const existing = this.store.findEventByExternalId(
-      "github",
-      mapped.externalEventId,
-    );
-    if (existing) {
-      return { accepted: true, duplicate: true, stale: false, event: existing };
-    }
-
-    const latest = this.store.latestEventForEntity(mapped.entityKey);
-    const stale = Boolean(
-      latest && latest.sourceActionAt > mapped.sourceActionAt,
-    );
-
-    const event = this.store.insertEvent({
+  ): Promise<IngestResult> {
+    const capturedAt = new Date().toISOString();
+    const recorded = await this.store.recordEvent({
       source: "github",
       externalEventId: mapped.externalEventId,
       entityKey: mapped.entityKey,
       versionKey: mapped.versionKey,
-      actorId: "eric",
+      actorId: "ingest",
       sourceActionAt: mapped.sourceActionAt,
-      capturedAt: new Date().toISOString(),
+      capturedAt,
       payload: mapped.payload,
       scopeDecision: "accepted",
       provenance: { ...provenance, repo: mapped.repoFullName },
-      latestForEntity: !stale,
     });
+    const { event, duplicate, stale } = recorded;
+    if (duplicate) {
+      return { accepted: true, duplicate: true, stale: false, event };
+    }
 
     if (stale) {
       return { accepted: true, duplicate: false, stale: true, event };
     }
 
-    const observation = this.store.insertObservation({
+    const observation = await this.store.insertObservation({
       statement: mapped.statement,
       epistemicClass: mapped.epistemicClass,
       eventId: event.id,
+      evidenceIds: [event.id],
       topicKeys: [mapped.stateKey],
-      actorId: "eric",
-      createdAt: new Date().toISOString(),
+      actorId: "ingest",
+      createdAt: capturedAt,
     });
 
     if (mapped.autoApply && mapped.epistemicClass === "fact") {
-      const appliedRevision = this.applyHardFact(
-        mapped.stateKey,
-        mapped.statement,
-        [event.id, observation.id],
-        mapped.sourceActionAt,
-      );
+      const appliedRevision = await this.store.applyHardFactAtomic({
+        stateKey: mapped.stateKey,
+        statement: mapped.statement,
+        evidenceIds: [event.id, observation.id],
+        effectiveAt: mapped.sourceActionAt,
+        createdAt: capturedAt,
+      });
       return {
         accepted: true,
         duplicate: false,
@@ -129,17 +122,21 @@ export class CompanyBrain {
     }
 
     const proposal =
-      mapped.classification === "observation" && mapped.stateKey === "engineering.working_on"
-        ? this.store.insertProposal({
+      mapped.classification === "observation"
+        ? await this.store.insertProposal({
             status: "pending",
             stateKey: mapped.stateKey,
             statement: mapped.statement,
             epistemicClass: "interpretation",
             confidence: 0.4,
             proposerId: "ingest",
+            idempotencyKey: `github:${mapped.externalEventId}:state`,
             evidenceIds: [event.id, observation.id],
-            payload: { kind: "github_working_on", repo: mapped.repoFullName },
-            createdAt: new Date().toISOString(),
+            payload: {
+              kind: "github_working_on",
+              repo: mapped.repoFullName,
+            },
+            createdAt: capturedAt,
           })
         : undefined;
 
@@ -153,46 +150,26 @@ export class CompanyBrain {
     };
   }
 
-  private applyHardFact(
-    stateKey: string,
-    statement: string,
-    evidenceIds: string[],
-    effectiveAt: string,
-  ): StateRevision {
-    const current = this.store.getCurrent(stateKey);
-    const previous = current
-      ? this.store.getRevision(current.revisionId)
-      : undefined;
-    const revision = this.store.insertRevision({
-      stateKey,
-      statement,
-      epistemicClass: "fact",
-      confidence: 1,
-      effectiveAt,
-      supersedesId: previous?.id ?? null,
-      evidenceIds,
-      proposalId: null,
-      verdictId: null,
-      createdAt: new Date().toISOString(),
-    });
-    this.store.setCurrent(stateKey, revision.id);
-    return revision;
-  }
-
-  proposeStateChange(input: {
+  async proposeStateChange(input: {
     actor: Actor;
+    requestId: string;
     stateKey: string;
     statement: string;
     evidenceIds: string[];
     confidence?: number;
-  }): Proposal {
+  }): Promise<Proposal> {
     if (input.actor.kind === "ingest") {
       throw new CompanyBrainError(
         "forbidden",
         "ingest identities cannot propose interpretations",
       );
     }
-    this.assertEvidence(input.evidenceIds);
+    await this.assertEvidence(input.evidenceIds, true);
+    const existing = await this.store.findProposalByIdempotency(
+      input.actor.id,
+      input.requestId,
+    );
+    if (existing) return existing;
     return this.store.insertProposal({
       status: "pending",
       stateKey: input.stateKey,
@@ -200,68 +177,96 @@ export class CompanyBrain {
       epistemicClass: "interpretation",
       confidence: input.confidence ?? 0.5,
       proposerId: input.actor.id,
+      idempotencyKey: input.requestId,
       evidenceIds: input.evidenceIds,
       payload: { kind: "state_change" },
       createdAt: new Date().toISOString(),
     });
   }
 
-  proposeObservation(input: {
+  async proposeObservation(input: {
     actor: Actor;
+    requestId: string;
     statement: string;
     evidenceIds: string[];
     topicKeys: string[];
-  }): Observation {
+  }): Promise<Observation> {
     if (input.actor.kind === "ingest") {
-      throw new CompanyBrainError("forbidden", "ingest identities cannot write MCP observations");
+      throw new CompanyBrainError(
+        "forbidden",
+        "ingest identities cannot write MCP observations",
+      );
     }
-    this.assertEvidence(input.evidenceIds);
-    const event = this.store.insertEvent({
+    await this.assertEvidence(input.evidenceIds, false);
+    const externalEventId = `mcp-obs:${input.actor.id}:${input.requestId}`;
+    const existingEvent = await this.store.findEventByExternalId(
+      "mcp",
+      externalEventId,
+    );
+    if (existingEvent) {
+      const observations = await this.store.listObservations();
+      const existingObservation = observations.find(
+        (row) => row.eventId === existingEvent.id,
+      );
+      if (existingObservation) return existingObservation;
+    }
+
+    const now = new Date().toISOString();
+    const recorded = await this.store.recordEvent({
       source: "mcp",
-      externalEventId: `mcp-obs:${input.actor.id}:${Date.now()}`,
-      entityKey: `mcp:${input.actor.id}`,
-      versionKey: new Date().toISOString(),
+      externalEventId,
+      entityKey: `mcp:${input.actor.id}:${input.requestId}`,
+      versionKey: input.requestId,
       actorId: input.actor.id,
-      sourceActionAt: new Date().toISOString(),
-      capturedAt: new Date().toISOString(),
-      payload: { kind: "mcp_observation", statement: input.statement },
+      sourceActionAt: now,
+      capturedAt: now,
+      payload: {
+        kind: "mcp_observation",
+        statement: input.statement,
+        evidenceIds: input.evidenceIds,
+      },
       scopeDecision: "accepted",
-      provenance: { actorId: input.actor.id },
-      latestForEntity: true,
+      provenance: {
+        actorId: input.actor.id,
+        requestId: input.requestId,
+      },
     });
+    const event = recorded.event;
     return this.store.insertObservation({
       statement: input.statement,
       epistemicClass: "observation",
       eventId: event.id,
+      evidenceIds: input.evidenceIds,
       topicKeys: input.topicKeys,
       actorId: input.actor.id,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
     });
   }
 
-  proposeDecision(input: {
+  async proposeDecision(input: {
     actor: Actor;
+    requestId: string;
     stateKey: string;
     statement: string;
     evidenceIds: string[];
-  }): Proposal {
+  }): Promise<Proposal> {
     return this.proposeStateChange(input);
   }
 
-  decideProposal(input: {
+  async decideProposal(input: {
     actor: Actor;
     proposalId: string;
     action: "approve" | "reject" | "refine";
     note?: string;
     refinementStatement?: string;
-  }): { proposal: Proposal; revision?: StateRevision } {
+  }): Promise<{ proposal: Proposal; revision?: StateRevision }> {
     if (input.actor.kind !== "founder") {
       throw new CompanyBrainError(
         "forbidden",
         "only authenticated founders may approve, reject, or refine",
       );
     }
-    const proposal = this.store.getProposal(input.proposalId);
+    const proposal = await this.store.getProposal(input.proposalId);
     if (!proposal) {
       throw new CompanyBrainError("not_found", "proposal not found");
     }
@@ -271,105 +276,92 @@ export class CompanyBrain {
         `proposal is ${proposal.status}`,
       );
     }
-
-    const verdict = this.store.insertVerdict({
-      proposalId: proposal.id,
-      action: input.action,
-      approverId: input.actor.id,
-      note: input.note ?? null,
-      refinementStatement: input.refinementStatement ?? null,
-      createdAt: new Date().toISOString(),
-    });
-
-    if (input.action === "reject") {
-      return {
-        proposal: this.store.updateProposal(proposal.id, { status: "rejected" }),
-      };
+    if (input.action !== "reject") {
+      await this.assertEvidence(proposal.evidenceIds, true);
     }
-
-    const statement =
-      input.action === "refine"
-        ? input.refinementStatement?.trim()
-        : proposal.statement;
-    if (!statement) {
+    const refinement =
+      input.action === "refine" ? input.refinementStatement?.trim() : null;
+    if (input.action === "refine" && !refinement) {
       throw new CompanyBrainError(
         "invalid",
         "refine requires refinementStatement",
       );
     }
-
-    for (const other of this.store.listProposals()) {
-      if (
-        other.id !== proposal.id &&
-        other.stateKey === proposal.stateKey &&
-        other.status === "pending"
-      ) {
-        this.store.updateProposal(other.id, { status: "superseded" });
+    try {
+      return await this.store.decideProposalAtomic({
+        proposalId: proposal.id,
+        action: input.action,
+        approverId: input.actor.id,
+        note: input.note ?? null,
+        refinementStatement: refinement ?? null,
+        decidedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("stale_proposal")) {
+        throw new CompanyBrainError("stale_proposal", message);
       }
+      if (message.includes("proposal_not_found")) {
+        throw new CompanyBrainError("not_found", "proposal not found");
+      }
+      throw error;
     }
-
-    const current = this.store.getCurrent(proposal.stateKey);
-    const previous = current
-      ? this.store.getRevision(current.revisionId)
-      : undefined;
-    const revision = this.store.insertRevision({
-      stateKey: proposal.stateKey,
-      statement,
-      epistemicClass: "interpretation",
-      confidence: proposal.confidence,
-      effectiveAt: new Date().toISOString(),
-      supersedesId: previous?.id ?? null,
-      evidenceIds: proposal.evidenceIds,
-      proposalId: proposal.id,
-      verdictId: verdict.id,
-      createdAt: new Date().toISOString(),
-    });
-    this.store.setCurrent(proposal.stateKey, revision.id);
-    return {
-      proposal: this.store.updateProposal(proposal.id, { status: "approved" }),
-      revision,
-    };
   }
 
-  currentState(): Array<StateRevision & { citations: Citation[] }> {
-    return this.store.listCurrent().flatMap((pointer) => {
-      const revision = this.store.getRevision(pointer.revisionId);
-      if (!revision) return [];
-      return [{ ...revision, citations: this.citationsFor(revision.evidenceIds) }];
-    });
+  async currentState(): Promise<
+    Array<StateRevision & { citations: Citation[] }>
+  > {
+    const pointers = await this.store.listCurrent();
+    const out: Array<StateRevision & { citations: Citation[] }> = [];
+    for (const pointer of pointers) {
+      const revision = await this.store.getRevision(pointer.revisionId);
+      if (!revision) continue;
+      out.push({
+        ...revision,
+        citations: await this.citationsFor(revision.evidenceIds),
+      });
+    }
+    return out;
   }
 
-  changes(): Array<{ at: string; statement: string; stateKey: string; kind: string }> {
-    const revisions = this.store.listRevisions().map((row) => ({
+  async changes(): Promise<
+    Array<{ at: string; statement: string; stateKey: string; kind: string }>
+  > {
+    const [storedRevisions, storedEvents] = await Promise.all([
+      this.store.listRevisions(),
+      this.store.listEvents(),
+    ]);
+    const revisions = storedRevisions.map((row) => ({
       at: row.createdAt,
       statement: row.statement,
       stateKey: row.stateKey,
       kind: "revision",
     }));
-    const events = this.store.listEvents().map((row) => ({
+    const events = storedEvents.map((row) => ({
       at: row.sourceActionAt,
       statement: excerptFromPayload(row.payload),
       stateKey: row.entityKey,
       kind: "event",
     }));
-    return [...revisions, ...events].sort((a, b) => (a.at < b.at ? 1 : -1));
+    return [...revisions, ...events].sort((a, b) =>
+      a.at < b.at ? 1 : a.at > b.at ? -1 : 0,
+    );
   }
 
-  evidence(actor: Actor, eventId: string): Citation & { raw?: Record<string, unknown> } {
-    const event = this.store.getEvent(eventId);
+  async evidence(eventId: string): Promise<Citation> {
+    const event = await this.store.getEvent(eventId);
     if (!event) throw new CompanyBrainError("not_found", "evidence not found");
-    const citation = this.citationForEvent(event);
-    if (actor.kind === "founder") {
-      return { ...citation, raw: event.payload };
-    }
-    return citation;
+    return this.citationForEvent(event);
   }
 
-  context(): CompanyContext {
-    const currentState = this.currentState();
-    const pendingProposals = this.store
-      .listProposals()
-      .filter((row) => row.status === "pending");
+  async context(): Promise<CompanyContext> {
+    const [currentState, allProposals] = await Promise.all([
+      this.currentState(),
+      this.store.listProposals(),
+    ]);
+    const pendingProposals = allProposals.filter(
+      (row) => row.status === "pending",
+    );
     const keys = new Set([
       ...currentState.map((row) => row.stateKey),
       ...pendingProposals.map((row) => row.stateKey),
@@ -384,50 +376,73 @@ export class CompanyBrain {
         ...pending,
       ]);
       if (distinct.size < 2) return [];
-      return [
-        {
-          stateKey,
-          current: current?.statement,
-          pending,
-        },
-      ];
+      return [{ stateKey, current: current?.statement, pending }];
     });
     return { currentState, pendingProposals, contradictions };
   }
 
-  decisions(): StateRevision[] {
-    return this.store
-      .listRevisions()
+  async decisions(): Promise<StateRevision[]> {
+    const revisions = await this.store.listRevisions();
+    return revisions
       .filter((row) => row.proposalId != null)
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      .sort((a, b) =>
+        a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0,
+      );
   }
 
-  private assertEvidence(ids: string[]): void {
+  private async assertEvidence(
+    ids: string[],
+    required: boolean,
+  ): Promise<void> {
+    if (required && ids.length === 0) {
+      throw new CompanyBrainError(
+        "evidence_required",
+        "interpretive proposals require at least one evidence id",
+      );
+    }
+    const observations = await this.store.listObservations();
     for (const id of ids) {
-      if (!this.store.getEvent(id) && !this.store.listObservations().some((row) => row.id === id)) {
-        throw new CompanyBrainError("invalid_evidence", `unknown evidence id ${id}`);
+      if (
+        !(await this.store.getEvent(id)) &&
+        !observations.some((row) => row.id === id)
+      ) {
+        throw new CompanyBrainError(
+          "invalid_evidence",
+          `unknown evidence id ${id}`,
+        );
       }
     }
   }
 
-  private citationsFor(ids: string[]): Citation[] {
-    const citations: Citation[] = [];
-    for (const id of ids) {
-      const event = this.store.getEvent(id);
-      if (event) citations.push(this.citationForEvent(event));
-      const observation = this.store.listObservations().find((row) => row.id === id);
-      if (observation) {
-        const observedEvent = this.store.getEvent(observation.eventId);
-        if (observedEvent) {
-          citations.push({
-            ...this.citationForEvent(observedEvent),
-            observationId: observation.id,
-            excerpt: observation.statement.slice(0, 280),
-          });
-        }
+  private async citationsFor(ids: string[]): Promise<Citation[]> {
+    const observations = await this.store.listObservations();
+    const citations = new Map<string, Citation>();
+    const visit = async (id: string, visited: Set<string>): Promise<void> => {
+      if (visited.has(id)) return;
+      visited.add(id);
+      const event = await this.store.getEvent(id);
+      if (event) {
+        const citation = this.citationForEvent(event);
+        citations.set(`${citation.eventId}:`, citation);
       }
-    }
-    return citations;
+      const observation = observations.find((row) => row.id === id);
+      if (!observation) return;
+      const observedEvent = await this.store.getEvent(observation.eventId);
+      if (observedEvent) {
+        const citation: Citation = {
+          ...this.citationForEvent(observedEvent),
+          observationId: observation.id,
+          excerpt: observation.statement.slice(0, 280),
+        };
+        citations.set(`${citation.eventId}:${observation.id}`, citation);
+      }
+      for (const parentId of observation.evidenceIds) {
+        await visit(parentId, visited);
+      }
+    };
+    const visited = new Set<string>();
+    for (const id of ids) await visit(id, visited);
+    return [...citations.values()];
   }
 
   private citationForEvent(event: SourceEvent): Citation {

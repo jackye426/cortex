@@ -1,6 +1,6 @@
 # Feature Implementation Plan
 
-**Overall Progress:** `35%` (implementation)
+**Overall Progress:** `45%` (implementation)
 **Discovery Progress:** `100%`
 
 ## Product Contract
@@ -74,7 +74,7 @@ The product repo may appear locally as `Work companion` (`productName: Forma`). 
   - [x] 🟩 Exclude personal Cortex/gbrain data, Claude, Slack, broad inbox/repo access
 
 - [x] 🟩 **Step 2: Build the fail-closed company foundation**
-  - [x] 🟩 Company-only environment loader (`COMPANY_BRAIN_*`); SQL prepared for a separate project
+  - [x] 🟩 Company-only environment loader (`COMPANY_BRAIN_*`); persistent Supabase store and SQL prepared for a separate project
   - [x] 🟩 Refuse generic Cortex credential fallbacks, missing project ref, or absent `cutover_at`
   - [x] 🟩 Actor/identity mappings: ingest service, proposing agent, approving founders
   - [x] 🟩 Immutable source events, observations, proposals, verdicts, state revisions, current-state pointers
@@ -86,8 +86,8 @@ The product repo may appear locally as `Work companion` (`productName: Forma`). 
   - [x] 🟩 Query tools: `brain_context`, `brain_current_state`, `brain_decisions`, `brain_changes`, `brain_evidence`
   - [x] 🟩 Proposal tools: `brain_propose_observation`, `brain_propose_decision`, `brain_propose_state_change`
   - [x] 🟩 Founder-only tools: `brain_approve_proposal`, `brain_reject_proposal`, `brain_refine_proposal`
-  - [x] 🟩 Apply verdict + state revision + current pointer with stale-proposal protection
-  - [x] 🟩 Citations required; raw payload is founder-only
+  - [x] 🟩 Apply verdict + state revision + current pointer atomically with stale-proposal protection
+  - [x] 🟩 Citations required; GitHub payloads minimized and raw payload retrieval withheld
 
 - [x] 🟩 **Step 4: Prove one GitHub-to-state vertical slice (Eric)**
   - [x] 🟩 Allowlist explicit Forma repository IDs (and optional installation IDs)
@@ -135,14 +135,14 @@ Each connector must pass unit contract tests plus an end-to-end ingest → store
 
 - [x] 🟩 Pre-cutover and missing-timestamp events are rejected before raw persistence
 - [x] 🟩 Out-of-scope repo/folder/domain/cwd events leave no records or artifacts
-- [x] 🟩 Duplicate delivery replay is idempotent; stale delivery cannot regress latest state
+- [x] 🟩 Duplicate delivery replay is idempotent; stale/equal-time delivery cannot regress latest state
 - [x] 🟩 Agent can propose but cannot approve; unauthenticated/non-founder approval fails
 - [x] 🟩 Approve/reject/refine and concurrent stale approval paths are covered
 - [x] 🟩 State supersession preserves complete history and current pointer integrity
 - [x] 🟩 Every answer citation resolves to immutable evidence under access policy
 - [x] 🟩 Compiler eval distinguishes hard facts from interpretations and does not auto-apply the latter
 - [x] 🟩 Clean-room audit finds zero personal Cortex/gbrain records
-- [ ] 🟥 Raw blob deduplication does not merge per-source provenance
+- [x] 🟩 V0 stores no raw blobs; minimized event provenance remains per source event
 
 ## Stop Conditions
 

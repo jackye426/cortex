@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "pnpm --filter @cortex/company-brain-server^... run build && tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@cortex/company-brain": "workspace:*",
@@ -16,6 +17,7 @@
     "hono": "^4.8.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.7",
     "@types/node": "^24.0.10",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"

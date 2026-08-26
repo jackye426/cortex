@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 export type StoreMode = "memory" | "supabase";
 
 export interface CompanyBrainConfig {
@@ -35,6 +37,14 @@ function req(env: NodeJS.Dict<string>, key: string): string {
   return value;
 }
 
+function strongSecret(env: NodeJS.Dict<string>, key: string): string {
+  const value = req(env, key);
+  if (Buffer.byteLength(value, "utf8") < 32) {
+    throw new CompanyBrainConfigError(`${key} must be at least 32 bytes`);
+  }
+  return value;
+}
+
 function projectRefFromUrl(url: string): string | null {
   try {
     const host = new URL(url).hostname;
@@ -62,7 +72,7 @@ function distinct(values: string[], label: string): void {
 export function loadCompanyBrainConfig(
   env: NodeJS.Dict<string> = process.env,
 ): CompanyBrainConfig {
-  const storeModeRaw = (env.COMPANY_BRAIN_STORE ?? "memory").trim();
+  const storeModeRaw = req(env, "COMPANY_BRAIN_STORE");
   if (storeModeRaw !== "memory" && storeModeRaw !== "supabase") {
     throw new CompanyBrainConfigError(
       "COMPANY_BRAIN_STORE must be memory or supabase",
@@ -111,11 +121,14 @@ export function loadCompanyBrainConfig(
     .map((id) => id.trim())
     .filter(Boolean);
 
-  const webhookSecret = req(env, "COMPANY_BRAIN_GITHUB_WEBHOOK_SECRET");
-  const ingest = req(env, "COMPANY_BRAIN_INGEST_TOKEN");
-  const agent = req(env, "COMPANY_BRAIN_AGENT_TOKEN");
-  const jack = req(env, "COMPANY_BRAIN_FOUNDER_JACK_TOKEN");
-  const eric = req(env, "COMPANY_BRAIN_FOUNDER_ERIC_TOKEN");
+  const webhookSecret = strongSecret(
+    env,
+    "COMPANY_BRAIN_GITHUB_WEBHOOK_SECRET",
+  );
+  const ingest = strongSecret(env, "COMPANY_BRAIN_INGEST_TOKEN");
+  const agent = strongSecret(env, "COMPANY_BRAIN_AGENT_TOKEN");
+  const jack = strongSecret(env, "COMPANY_BRAIN_FOUNDER_JACK_TOKEN");
+  const eric = strongSecret(env, "COMPANY_BRAIN_FOUNDER_ERIC_TOKEN");
   distinct([ingest, agent, jack, eric], "Company Brain tokens");
 
   for (const [genericKey, companyToken] of [
@@ -171,19 +184,24 @@ export function resolveActorFromToken(
   token: string | undefined,
 ): ResolvedActor {
   if (!token) return { ok: false };
-  if (token === config.tokens.ingest) {
+  const equals = (expected: string): boolean => {
+    const received = Buffer.from(token, "utf8");
+    const wanted = Buffer.from(expected, "utf8");
+    return received.length === wanted.length && timingSafeEqual(received, wanted);
+  };
+  if (equals(config.tokens.ingest)) {
     return {
       ok: true,
       actor: { id: "ingest", kind: "ingest", displayName: "GitHub ingest" },
     };
   }
-  if (token === config.tokens.agent) {
+  if (equals(config.tokens.agent)) {
     return {
       ok: true,
       actor: { id: "agent", kind: "agent", displayName: "Company Brain agent" },
     };
   }
-  if (token === config.tokens.founders.jack) {
+  if (equals(config.tokens.founders.jack)) {
     return {
       ok: true,
       actor: {
@@ -194,7 +212,7 @@ export function resolveActorFromToken(
       },
     };
   }
-  if (token === config.tokens.founders.eric) {
+  if (equals(config.tokens.founders.eric)) {
     return {
       ok: true,
       actor: {

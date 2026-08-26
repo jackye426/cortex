@@ -77,6 +77,11 @@ function installationId(payload: Record<string, unknown>): string | undefined {
   return typeof id === "number" || typeof id === "string" ? String(id) : undefined;
 }
 
+function githubActorLogin(payload: Record<string, unknown>): string | undefined {
+  const sender = isRecord(payload.sender) ? payload.sender : null;
+  return sender ? str(sender.login) : undefined;
+}
+
 export function mapGithubWebhook(input: {
   config: CompanyBrainConfig;
   eventName: string;
@@ -162,6 +167,7 @@ function mapEvent(
 ): Omit<GithubMappedEvent, "repoFullName"> | null {
   const action = str(payload.action) ?? "unknown";
   const repo = str(isRecord(payload.repository) ? payload.repository.full_name : undefined);
+  const actorLogin = githubActorLogin(payload);
 
   if (eventName === "pull_request") {
     const pr = isRecord(payload.pull_request) ? payload.pull_request : null;
@@ -175,16 +181,51 @@ function mapEvent(
       (merged ? str(pr.merged_at) : str(pr.updated_at) ?? str(pr.created_at)) ?? "";
     const title = str(pr.title) ?? "";
     const entityKey = `pr:${repo.toLowerCase()}#${number}`;
+    const stateKey = `engineering.work.${repo.toLowerCase().replace("/", ".")}.${number}`;
     if (merged) {
       return {
         externalEventId: deliveryId,
         entityKey,
         versionKey: `merged:${str(pr.merged_at) ?? deliveryId}`,
         sourceActionAt,
-        payload: { kind: "github_pr", action, repo, number, title, merged: true, pr },
+        payload: {
+          kind: "github_pr",
+          action,
+          repo,
+          number,
+          title,
+          merged: true,
+          mergedAt: str(pr.merged_at),
+          htmlUrl: str(pr.html_url),
+          actorLogin,
+        },
         classification: "hard_fact",
         statement: `PR #${number} merged in ${repo}: ${title}`,
-        stateKey: `github.pr.${repo.toLowerCase().replace("/", ".")}.${number}`,
+        stateKey,
+        epistemicClass: "fact",
+        autoApply: true,
+      };
+    }
+    if (action === "closed") {
+      return {
+        externalEventId: deliveryId,
+        entityKey,
+        versionKey: `closed:${str(pr.closed_at) ?? str(pr.updated_at) ?? deliveryId}`,
+        sourceActionAt: str(pr.closed_at) ?? sourceActionAt,
+        payload: {
+          kind: "github_pr",
+          action,
+          repo,
+          number,
+          title,
+          merged: false,
+          closedAt: str(pr.closed_at) ?? str(pr.updated_at),
+          htmlUrl: str(pr.html_url),
+          actorLogin,
+        },
+        classification: "hard_fact",
+        statement: `PR #${number} closed without merge in ${repo}: ${title}`,
+        stateKey,
         epistemicClass: "fact",
         autoApply: true,
       };
@@ -194,10 +235,22 @@ function mapEvent(
       entityKey,
       versionKey: `${action}:${str(pr.updated_at) ?? deliveryId}`,
       sourceActionAt,
-      payload: { kind: "github_pr", action, repo, number, title, merged: false, pr },
+      payload: {
+        kind: "github_pr",
+        action,
+        repo,
+        number,
+        title,
+        merged: false,
+        updatedAt: str(pr.updated_at),
+        headRef: isRecord(pr.head) ? str(pr.head.ref) : undefined,
+        baseRef: isRecord(pr.base) ? str(pr.base.ref) : undefined,
+        htmlUrl: str(pr.html_url),
+        actorLogin,
+      },
       classification: "observation",
       statement: `PR #${number} ${action} in ${repo}: ${title}`,
-      stateKey: `engineering.working_on`,
+      stateKey,
       epistemicClass: "observation",
       autoApply: false,
     };
@@ -214,7 +267,17 @@ function mapEvent(
       entityKey: `pr-review:${repo.toLowerCase()}#${number}:${str(review.id) ?? deliveryId}`,
       versionKey: deliveryId,
       sourceActionAt,
-      payload: { kind: "github_pr_review", action, repo, number, review },
+      payload: {
+        kind: "github_pr_review",
+        action,
+        repo,
+        number,
+        reviewId: review.id,
+        state: str(review.state),
+        submittedAt: str(review.submitted_at),
+        htmlUrl: str(review.html_url),
+        actorLogin,
+      },
       classification: "observation",
       statement: `PR #${number} review ${str(review.state) ?? action} in ${repo}`,
       stateKey: `github.pr.${repo.toLowerCase().replace("/", ".")}.${number}`,
@@ -234,7 +297,17 @@ function mapEvent(
       entityKey: `issue:${repo.toLowerCase()}#${number}`,
       versionKey: `${action}:${str(issue.updated_at) ?? deliveryId}`,
       sourceActionAt,
-      payload: { kind: "github_issue", action, repo, number, issue },
+      payload: {
+        kind: "github_issue",
+        action,
+        repo,
+        number,
+        title: str(issue.title),
+        state: str(issue.state),
+        updatedAt: str(issue.updated_at),
+        htmlUrl: str(issue.html_url),
+        actorLogin,
+      },
       classification: "observation",
       statement: `Issue #${number} ${action} in ${repo}: ${str(issue.title) ?? ""}`,
       stateKey: `github.issue.${repo.toLowerCase().replace("/", ".")}.${number}`,
@@ -258,7 +331,18 @@ function mapEvent(
       entityKey: `ci:${repo.toLowerCase()}:${str(node.id) ?? deliveryId}`,
       versionKey: deliveryId,
       sourceActionAt,
-      payload: { kind: `github_${eventName}`, action, repo, node },
+      payload: {
+        kind: `github_${eventName}`,
+        action,
+        repo,
+        id: node.id,
+        name: str(node.name),
+        status: str(node.status),
+        conclusion: str(node.conclusion),
+        completedAt: str(node.completed_at),
+        htmlUrl: str(node.html_url),
+        actorLogin,
+      },
       classification: "observation",
       statement: `CI ${eventName} ${conclusion} in ${repo}`,
       stateKey: `github.ci.${repo.toLowerCase().replace("/", ".")}`,
@@ -269,15 +353,32 @@ function mapEvent(
 
   if (eventName === "deployment" || eventName === "deployment_status") {
     const deployment = isRecord(payload.deployment) ? payload.deployment : payload;
+    const deploymentStatus = isRecord(payload.deployment_status)
+      ? payload.deployment_status
+      : null;
     if (!isRecord(deployment) || !repo) return null;
     const sourceActionAt =
-      str(deployment.updated_at) ?? str(deployment.created_at) ?? "";
+      str(deploymentStatus?.updated_at) ??
+      str(deploymentStatus?.created_at) ??
+      str(deployment.updated_at) ??
+      str(deployment.created_at) ??
+      "";
     return {
       externalEventId: deliveryId,
       entityKey: `deploy:${repo.toLowerCase()}:${str(deployment.id) ?? deliveryId}`,
       versionKey: deliveryId,
       sourceActionAt,
-      payload: { kind: `github_${eventName}`, action, repo, deployment },
+      payload: {
+        kind: `github_${eventName}`,
+        action,
+        repo,
+        deploymentId: deployment.id,
+        environment: str(deployment.environment),
+        ref: str(deployment.ref),
+        status: str(deploymentStatus?.state),
+        sourceActionAt,
+        actorLogin,
+      },
       classification: "observation",
       statement: `Deployment ${eventName} in ${repo}`,
       stateKey: `github.deploy.${repo.toLowerCase().replace("/", ".")}`,
