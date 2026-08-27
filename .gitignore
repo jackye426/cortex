@@ -50,3 +50,6 @@ credentials/
 !.cursor/skills
 !.cursor/skills/**
 
+# Generated GitHub App manifest HTML (from company-brain:github-app)
+apps/company-brain/github-app-manifest.html
+

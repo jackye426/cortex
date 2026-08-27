@@ -1,0 +1,25 @@
+{
+  "name": "@cortex/company-brain-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "pnpm --filter @cortex/company-brain-server^... run build && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@cortex/company-brain": "workspace:*",
+    "@hono/node-server": "^1.14.4",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "hono": "^4.8.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.7",
+    "@types/node": "^24.0.10",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}
