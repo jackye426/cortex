@@ -34,6 +34,8 @@
     "test:mcp": "pnpm --filter @cortex/mcp-server test",
     "test:company-brain": "pnpm --filter @cortex/company-brain test && pnpm --filter @cortex/company-brain-server test",
     "dev:company-brain": "pnpm --filter @cortex/company-brain-server dev",
+    "company-brain:migrate": "node scripts/company-brain-apply-migrations.mjs",
+    "company-brain:github-app": "node scripts/company-brain-github-app-manifest.mjs",
     "mirror": "pnpm --filter @cortex/openai-mirror start",
     "mirror:tools": "pnpm --filter @cortex/openai-mirror tools",
     "pm2:start": "pm2 start ecosystem.config.cjs",

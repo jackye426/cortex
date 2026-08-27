@@ -20,16 +20,17 @@ pnpm --filter @cortex/company-brain-server dev
 - MCP: `POST /mcp` with Jack, Eric, or agent bearer token
 
 Set `COMPANY_BRAIN_STORE=memory` for local tests only. Production refuses
-ephemeral mode and requires `COMPANY_BRAIN_STORE=supabase` with the dedicated
-Company Brain project URL, service key, and matching project ref.
+ephemeral mode and requires `COMPANY_BRAIN_STORE=supabase` with
+`COMPANY_BRAIN_SUPABASE_URL`, service key, and matching project ref.
 
-`apps/company-brain/migrations/` is for a **separate** Supabase project; apply
-the SQL files in numeric order and never apply them to Cortex. The migrations
-include an upgrade path, RLS policies, and transactional RPCs for complete
-event ingestion, source ordering, hard facts, and founder verdicts.
-The hardening migration moves any legacy partial delivery into
-`company_brain_private.cb_upgrade_replay_events` and frees its delivery ID for
-manual GitHub redelivery.
+**Reuse the existing Cortex EU Supabase project** — add namespaced `cb_*`
+tables there. Isolation is schema + `COMPANY_BRAIN_*` credentials (never fall
+back to generic `SUPABASE_*`). Provisioning: [company-brain-provision.md](company-brain-provision.md).
+
+Apply `apps/company-brain/migrations/` in numeric order (or
+`node scripts/company-brain-apply-migrations.mjs`). Migrations include RLS,
+transactional RPCs, and an upgrade path that queues legacy partial deliveries
+in `company_brain_private.cb_upgrade_replay_events`.
 
 ## Tokens / roles
 

@@ -1,5 +1,6 @@
--- Company Brain V0 schema for a *separate* Supabase project.
--- Do not apply this migration to the personal Cortex database.
+-- Company Brain V0 schema (namespaced cb_* / company_brain_private).
+-- May be applied to the existing Cortex EU Supabase project.
+-- Do not create Cortex/gbrain rows here; runtime uses COMPANY_BRAIN_* only.
 
 create table if not exists public.cb_actors (
   id text primary key,

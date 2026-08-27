@@ -20,7 +20,7 @@ Thesis: [AI-Native Company OS](https://app.notion.com/p/3c6196f5637381a19f5fcd68
 
 ## Critical Decisions
 
-- **Clean-room and fail-closed:** Use a separate Supabase/Postgres project, storage, credentials, checkpoints, and `cutover_at`. Company Brain entrypoints accept only `COMPANY_BRAIN_*` configuration, verify the expected project reference, and refuse generic Cortex credential fallbacks.
+- **Clean-room and fail-closed:** Reuse the existing Cortex EU Supabase project with namespaced `cb_*` / `company_brain_private` tables (no second project unless requested). Runtime uses only `COMPANY_BRAIN_*` credentials, verifies project ref, refuses generic Cortex credential fallbacks, and keeps an independent `cutover_at` / empty company store.
 - **Company model, not personal model:** Reuse the epistemic concepts and interfaces, but introduce company-native actors, topics/entities, immutable source events, proposals, decisions, and state revisions. Do not reuse intrapersonal tables unchanged.
 - **Immutable history:** Store each source event/version once, deduplicate deliveries, reject stale updates, and maintain a separate latest-state pointer. Never overwrite history with a stable PR, issue, note, or session ID.
 - **Cutover rule:** Admissibility is based on the source action that changed company reality. Missing/invalid timestamps are rejected before raw persistence. A pre-cutover PR merged post-cutover contributes only the post-cutover merge event and minimal identifiers—not pre-cutover comments/body as evidence.
@@ -74,13 +74,13 @@ The product repo may appear locally as `Work companion` (`productName: Forma`). 
   - [x] 🟩 Exclude personal Cortex/gbrain data, Claude, Slack, broad inbox/repo access
 
 - [x] 🟩 **Step 2: Build the fail-closed company foundation**
-  - [x] 🟩 Company-only environment loader (`COMPANY_BRAIN_*`); persistent Supabase store and SQL prepared for a separate project
+  - [x] 🟩 Company-only environment loader (`COMPANY_BRAIN_*`); persistent Supabase store and SQL for shared-project `cb_*` tables
   - [x] 🟩 Refuse generic Cortex credential fallbacks, missing project ref, or absent `cutover_at`
   - [x] 🟩 Actor/identity mappings: ingest service, proposing agent, approving founders
   - [x] 🟩 Immutable source events, observations, proposals, verdicts, state revisions, current-state pointers
   - [x] 🟩 Enforce scope and source-action cutover at connector and ingest boundary
   - [x] 🟩 Empty store reports zero Cortex/gbrain records
-  - [ ] 🟥 Provision the separate Supabase project and wire the SQL store (schema is ready; runtime is isolated memory until then)
+  - [ ] 🟥 Apply `cb_*` migrations to the existing Supabase project and wire `COMPANY_BRAIN_*` store credentials
 
 - [x] 🟩 **Step 3: Expose authenticated proposal, approval, and query MCP**
   - [x] 🟩 Query tools: `brain_context`, `brain_current_state`, `brain_decisions`, `brain_changes`, `brain_evidence`
