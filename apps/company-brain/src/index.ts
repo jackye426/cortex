@@ -41,7 +41,7 @@ loadCompanyBrainDotEnv();
 
 try {
   const { app, config } = createCompanyBrainRuntime(process.env);
-  const port = Number(process.env.COMPANY_BRAIN_PORT ?? 8795);
+  const port = Number(process.env.PORT ?? process.env.COMPANY_BRAIN_PORT ?? 8795);
   serve({ fetch: app.fetch, port }, (info) => {
     console.info(
       `Company Brain listening on http://localhost:${info.port} (${config.storeMode})`,

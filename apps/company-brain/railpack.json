@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "steps": {
+    "build": {
+      "commands": ["...", "pnpm --filter @cortex/company-brain-server build"]
+    }
+  },
+  "deploy": {
+    "startCommand": "pnpm --filter @cortex/company-brain-server start"
+  }
+}
