@@ -12,6 +12,7 @@ Use this before relying on production ingest/MCP.
 ## Vault & deletions (tombstones)
 
 - [x] EU Supabase linked; migrations applied through Phase 7 (`audit_log`)
+- [ ] Apply `20260916120000_rls_deny_by_default.sql` and confirm Advisors **Security** ERROR checks `rls_disabled_in_public` + `sensitive_columns_exposed` are clear ([SECURITY.md](../SECURITY.md))
 - [x] Soft-delete only: `POST /v1/deletions` → `public.deletions` (`apps/api/src/deletions.ts`)
 - [x] MCP/search paths filter tombstoned `target_type` + `target_id` (`apps/mcp-server/src/store/supabase-store.ts`)
 - [x] Do **not** purge Storage objects for vault rows — vault forever

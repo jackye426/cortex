@@ -1,6 +1,26 @@
 -- Unified Memory Substrate: lens-aware search over distillates.metadata
 -- Extends cortex_search_memory with optional domain / topic / sourceType filters.
 -- Apply: npx supabase db push (when linked) or run in SQL editor.
+--
+-- CREATE OR REPLACE with extra arguments does *not* replace the 6-arg
+-- overload from 20260712200000 — it adds a second function. Unqualified
+-- COMMENT/GRANT/ALTER on public.cortex_search_memory then fail with
+-- SQLSTATE 42725 (function name is not unique). Drop every overload first.
+
+do $$
+declare
+  r record;
+begin
+  for r in
+    select p.oid::regprocedure as proc
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'cortex_search_memory'
+  loop
+    execute format('drop function %s', r.proc);
+  end loop;
+end
+$$;
 
 create or replace function public.cortex_search_memory(
   p_owner_id uuid default null,
@@ -138,5 +158,19 @@ begin
 end;
 $$;
 
-comment on function public.cortex_search_memory is
-  'Cortex MCP search_memory: distillates (keyword/vector + metadata lenses) + records keyword; no raw blob embeddings.';
+do $$
+declare
+  proc regprocedure;
+begin
+  select p.oid::regprocedure into strict proc
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'cortex_search_memory';
+
+  execute format(
+    'comment on function %s is %L',
+    proc,
+    'Cortex MCP search_memory: distillates (keyword/vector + metadata lenses) + records keyword; no raw blob embeddings.'
+  );
+end
+$$;

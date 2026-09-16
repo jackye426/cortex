@@ -166,7 +166,11 @@ begin
 end;
 $$;
 
-comment on function public.cortex_search_records is
+comment on function public.cortex_search_records(
+  uuid, text, integer, text[], text[], text[], timestamptz, timestamptz
+) is
   'Cortex MCP search_records: ILIKE over payload::text + ids/types with filters.';
-comment on function public.cortex_search_memory is
+comment on function public.cortex_search_memory(
+  uuid, text, integer, text[], vector
+) is
   'Cortex MCP search_memory: distillates (keyword/vector) + records keyword; no raw blob embeddings.';

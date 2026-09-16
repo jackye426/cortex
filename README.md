@@ -41,6 +41,7 @@ packages/adapters/*      Source adapters (claude-code, codex, chatgpt-export, �
 packages/normalize       Raw → canonical mappers
 hooks/                   Claude / Codex reference hook scripts
 supabase/                config + migrations (EU project)
+SECURITY.md              Supabase Data API / RLS lockdown (Advisors 0013 / 0023)
 docs/                    Setup notes (mcp, deploy, twin, data-verse, chatgpt, …)
 ```
 
@@ -172,7 +173,7 @@ Collector-only: `apps/collector/ecosystem.config.cjs`.
 
 ### Supabase
 
-See [docs/supabase.md](docs/supabase.md). Migrations ship in-repo (pgvector search RPCs, Mirror role grants, and intrapersonal I1–I5 tables: `observations`, `interests`, `hypotheses`, `self_model_versions`, `decisions`/`experiments`, `self_model_diffs`, …). Linking an EU project is required before real vault writes. Apply with `npx supabase db push` when linked.
+See [docs/supabase.md](docs/supabase.md) and [SECURITY.md](SECURITY.md). Migrations ship in-repo (pgvector search RPCs, Mirror role grants, intrapersonal I1–I5 tables, and deny-by-default RLS). Linking an EU project is required before real vault writes. Apply with `npx supabase db push` when linked. After the RLS migration, ingest/MCP need `SUPABASE_SERVICE_ROLE_KEY` (the anon key cannot read vault rows).
 
 ## Scripts
 
