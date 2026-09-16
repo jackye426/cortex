@@ -226,9 +226,10 @@ end
 $$;
 
 -- ---------------------------------------------------------------------------
--- 4. RPCs: keep SEARCH_PATH pinned; hide SECURITY DEFINER search from anon.
---    cortex_search_memory is SECURITY DEFINER (Mirror-safe skip of raw records).
---    cortex_search_records is invoker and returns raw records — vault roles only.
+-- 4. RPCs: pin search_path and hide from anon, one overload at a time.
+--    Never COMMENT/GRANT/ALTER public.cortex_search_memory without a signature:
+--    6-arg (20260712200000) and 9-arg (20260713120000) overloads can coexist
+--    and unqualified names fail with SQLSTATE 42725.
 -- ---------------------------------------------------------------------------
 do $$
 declare
