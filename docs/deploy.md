@@ -4,7 +4,7 @@ Personal vault stack: **ingest API** + **remote MCP** + **EU Supabase**. Collect
 
 ## Prerequisites
 
-- Linked **EU** Supabase project (see [supabase.md](supabase.md)) — run `npx supabase db push` so Phase 0–7 migrations (including `audit_log`) apply.
+- Linked **EU** Supabase project (see [supabase.md](supabase.md)) — run `npx supabase db push` so Phase 0–7 migrations (including `audit_log`) **and** `20260916120000_rls_deny_by_default.sql` apply. Vault Data API is deny-by-default; set `SUPABASE_SERVICE_ROLE_KEY` ([SECURITY.md](../SECURITY.md)).
 - Long-lived bearer tokens in env (`CORTEX_INGEST_TOKEN`, preferably separate `CORTEX_MCP_TOKEN`). Rotate via `api_tokens` later; never commit secrets.
 - HTTPS only in production.
 

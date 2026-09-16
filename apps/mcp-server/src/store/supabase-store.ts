@@ -567,6 +567,14 @@ export class SupabaseStore implements CortexStore {
     const gatewayKey = resolveSupabaseGatewayKey()!;
     const ownerId = process.env.CORTEX_OWNER_ID?.trim() || undefined;
     const mirrorKey = resolveSupabaseMirrorKey();
+    if (
+      !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() &&
+      process.env.SUPABASE_ANON_KEY?.trim()
+    ) {
+      console.warn(
+        "[store] SUPABASE_SERVICE_ROLE_KEY unset; anon cannot bypass RLS after the deny-by-default migration. See SECURITY.md.",
+      );
+    }
 
     if (kind === "mirror" && mirrorKey) {
       const client = createClient(url, gatewayKey, {

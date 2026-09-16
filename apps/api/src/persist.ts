@@ -59,9 +59,14 @@ export function getSupabaseAdmin(): SupabaseClient | null {
     return null;
   }
   const url = process.env.SUPABASE_URL!.trim().replace(/\/$/, "");
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY!.trim();
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const anon = process.env.SUPABASE_ANON_KEY?.trim();
+  if (!serviceRole && anon) {
+    console.warn(
+      "[persist] SUPABASE_SERVICE_ROLE_KEY unset; anon cannot bypass RLS after the deny-by-default migration. See SECURITY.md.",
+    );
+  }
+  const key = serviceRole || anon!;
   cachedClient = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
