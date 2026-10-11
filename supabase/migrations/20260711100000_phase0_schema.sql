@@ -242,9 +242,14 @@ values
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
--- RLS (single-user owner_id). Policies use auth.uid(); service role bypasses.
+-- RLS: fail-closed for the Data API. Service role bypasses; table owners
+-- (postgres) still bypass so seed INSERTs in later migrations work.
+-- Do not add USING (true) policies — they made the anon key a vault reader
+-- (Advisors rls_disabled_in_public / sensitive_columns_exposed).
+-- Mirror policies + anon REVOKE: 20260916120000_rls_deny_by_default.sql
 -- ---------------------------------------------------------------------------
 
+alter table public.sources enable row level security;
 alter table public.source_accounts enable row level security;
 alter table public.sync_checkpoints enable row level security;
 alter table public.raw_artifacts enable row level security;
@@ -258,26 +263,3 @@ alter table public.entity_links enable row level security;
 alter table public.deletions enable row level security;
 alter table public.distillates enable row level security;
 alter table public.api_tokens enable row level security;
-
--- Helper predicate: row owned by current auth user
--- (sources table is reference data — no RLS)
-
-create policy source_accounts_owner on public.source_accounts
-  for all using (true) with check (true);
-
--- Note: Phase 0 enables RLS with permissive policies for local/dev.
--- Tighten to owner_id = auth.uid() once Auth is wired (Phase 6/7).
--- Service-role ingest path will bypass RLS regardless.
-
-create policy sync_checkpoints_all on public.sync_checkpoints for all using (true) with check (true);
-create policy raw_artifacts_all on public.raw_artifacts for all using (true) with check (true);
-create policy records_all on public.records for all using (true) with check (true);
-create policy sessions_all on public.sessions for all using (true) with check (true);
-create policy turns_all on public.turns for all using (true) with check (true);
-create policy messages_all on public.messages for all using (true) with check (true);
-create policy tool_calls_all on public.tool_calls for all using (true) with check (true);
-create policy entities_all on public.entities for all using (true) with check (true);
-create policy entity_links_all on public.entity_links for all using (true) with check (true);
-create policy deletions_all on public.deletions for all using (true) with check (true);
-create policy distillates_all on public.distillates for all using (true) with check (true);
-create policy api_tokens_all on public.api_tokens for all using (true) with check (true);

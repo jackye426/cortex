@@ -66,6 +66,9 @@ create index affect_signals_owner_type_idx
 comment on table public.affect_signals is
   'Lightweight energy/valence/friction signals (inferred or self-reported).';
 
+alter table public.interests enable row level security;
+alter table public.affect_signals enable row level security;
+
 -- ---------------------------------------------------------------------------
 -- Mirror grants
 -- ---------------------------------------------------------------------------

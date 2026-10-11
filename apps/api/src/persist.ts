@@ -35,12 +35,25 @@ export interface PersistIngestResult {
 }
 
 let cachedClient: SupabaseClient | null | undefined;
+let warnedAnonVaultKey = false;
+
+const ANON_RLS_WARNING =
+  "SUPABASE_SERVICE_ROLE_KEY unset; anon cannot bypass RLS after the deny-by-default migration. See SECURITY.md.";
+
+/** Service role preferred. Anon cannot read/write vault rows after RLS lockdown. */
+export function resolveSupabaseVaultKey(): string | undefined {
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const anon = process.env.SUPABASE_ANON_KEY?.trim();
+  if (!serviceRole && anon && !warnedAnonVaultKey) {
+    warnedAnonVaultKey = true;
+    console.warn(`[persist] ${ANON_RLS_WARNING}`);
+  }
+  return serviceRole || anon || undefined;
+}
 
 export function isSupabaseConfigured(): boolean {
   const url = process.env.SUPABASE_URL?.trim();
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim();
+  const key = resolveSupabaseVaultKey();
   if (!url || !key) return false;
   if (url.includes("YOUR_PROJECT_REF")) return false;
   return true;
@@ -59,14 +72,7 @@ export function getSupabaseAdmin(): SupabaseClient | null {
     return null;
   }
   const url = process.env.SUPABASE_URL!.trim().replace(/\/$/, "");
-  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const anon = process.env.SUPABASE_ANON_KEY?.trim();
-  if (!serviceRole && anon) {
-    console.warn(
-      "[persist] SUPABASE_SERVICE_ROLE_KEY unset; anon cannot bypass RLS after the deny-by-default migration. See SECURITY.md.",
-    );
-  }
-  const key = serviceRole || anon!;
+  const key = resolveSupabaseVaultKey()!;
   cachedClient = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });

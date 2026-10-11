@@ -20,6 +20,8 @@ Migration: [`supabase/migrations/20260916120000_rls_deny_by_default.sql`](supaba
 
 No table is left as an intentional public Data API. `public.sources` is a catalog, still RLS-locked.
 
+Table-creation migrations now enable RLS with **no** `USING (true)` policies (fail-closed on `db reset` / preview). The 20260916 migration still remediates production DBs that already applied the old stubs.
+
 ## Apply (do not put secrets in git)
 
 Linked CLI (preferred):

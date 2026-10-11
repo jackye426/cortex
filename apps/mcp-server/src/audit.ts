@@ -4,6 +4,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { resolveSupabaseGatewayKey } from "./env.js";
 
 export function hashTokenId(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
@@ -24,9 +25,7 @@ export async function logMcpAudit(input: {
   });
 
   const url = process.env.SUPABASE_URL?.trim();
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim();
+  const key = resolveSupabaseGatewayKey();
   if (!url || !key || url.includes("YOUR_PROJECT_REF")) return;
 
   try {

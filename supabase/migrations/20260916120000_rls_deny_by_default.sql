@@ -5,9 +5,11 @@
 --   * cortex_mirror (Mirror MCP JWT) — RLS applies; policies below match existing grants.
 --   * anon / authenticated — no table grants, no policies (deny-by-default).
 --
--- Phase 0 enabled RLS with USING (true) stub policies; later intrapersonal tables
--- shipped with RLS off. Advisors flagged rls_disabled_in_public (all public tables
--- without RLS) and sensitive_columns_exposed (e.g. observations.session_id).
+-- Older Phase 0 / intrapersonal SQL enabled RLS with USING (true) stubs or left
+-- RLS off. Advisors flagged rls_disabled_in_public (public tables without RLS)
+-- and sensitive_columns_exposed (e.g. observations.session_id). Historical
+-- migrations in this repo are now fail-closed (RLS on, no tautology policies);
+-- this file still remediates already-applied production databases.
 --
 -- This migration does not invent credentials or touch dashboard secrets.
 -- Apply: `npx supabase db push` (linked) or paste into SQL Editor. See SECURITY.md.

@@ -18,6 +18,8 @@ create table public.self_model_diffs (
 create index self_model_diffs_owner_created_idx
   on public.self_model_diffs (owner_id, created_at desc);
 
+alter table public.self_model_diffs enable row level security;
+
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'cortex_mirror') then

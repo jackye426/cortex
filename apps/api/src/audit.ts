@@ -6,6 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { isSupabaseConfigured, resolveSupabaseVaultKey } from "./persist.js";
 
 export interface AuditEvent {
   /** Ingest source id, `mcp`, `webhook:github`, etc. */
@@ -21,16 +22,6 @@ export interface AuditEvent {
 
 export function hashTokenId(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
-}
-
-function isSupabaseConfigured(): boolean {
-  const url = process.env.SUPABASE_URL?.trim();
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim();
-  if (!url || !key) return false;
-  if (url.includes("YOUR_PROJECT_REF")) return false;
-  return true;
 }
 
 /**
@@ -59,9 +50,7 @@ export async function logAuditEvent(event: AuditEvent): Promise<void> {
   }
 
   const url = process.env.SUPABASE_URL!.replace(/\/$/, "");
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY!.trim();
+  const key = resolveSupabaseVaultKey()!;
 
   try {
     const res = await fetch(`${url}/rest/v1/audit_log`, {
