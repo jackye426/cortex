@@ -61,6 +61,9 @@ create index claim_evidence_observation_idx
 comment on table public.claim_evidence is
   'Evidence links for durable intrapersonal claims (I1 join; ledger lands in I3).';
 
+alter table public.observations enable row level security;
+alter table public.claim_evidence enable row level security;
+
 -- ---------------------------------------------------------------------------
 -- Mirror role grants (reflective_sensitive derived memory)
 -- ---------------------------------------------------------------------------

@@ -37,12 +37,13 @@ Also apply:
 - `20260712200000_distillate_embeddings_search.sql` — embeddings + `cortex_search_memory`
 - `20260713120000_memory_lenses_search.sql` — operational/reflective lenses
 - `20260716160000_evidence_capabilities_and_calendar_view.sql` — evidence broker table + `cortex_calendar_structure` view
+- `20260916120000_rls_deny_by_default.sql` — RLS on every public table; drop `USING (true)` stubs; revoke anon/authenticated Data API grants. See [SECURITY.md](../SECURITY.md).
 
 One-off apply without CLI link (needs DB password from Dashboard → Database):
 
 ```bash
 DATABASE_URL='postgresql://postgres:<PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres' \
-  node scripts/apply-migration.mjs supabase/migrations/20260716160000_evidence_capabilities_and_calendar_view.sql
+  node scripts/apply-migration.mjs supabase/migrations/20260916120000_rls_deny_by_default.sql
 ```
 
 Or paste that migration SQL into Dashboard → SQL Editor → Run.
@@ -102,3 +103,7 @@ curl "$SUPABASE_URL/rest/v1/records?select=id&limit=1" \
 7. **Wire MCP (done when deployed):** `/mcp` uses `SUPABASE_MIRROR_KEY`; `/mcp/ops` + `/v1/*` compilers use `SUPABASE_SERVICE_ROLE_KEY`. Evidence broker raw reads use the vault client after policy. Health exposes `credentials.mirror` / `credentials.vault`.
 
 The MCP server (`apps/mcp-server`, [docs/mcp.md](mcp.md)) uses Supabase when `SUPABASE_URL` + a key are set; otherwise it runs in **fixture** mode so tools work without a linked project.
+
+## Data API / RLS
+
+Vault tables are not a public API. After `20260916120000_rls_deny_by_default.sql`, `anon` and `authenticated` have no table grants and no policies. Ingest and Ops must use `SUPABASE_SERVICE_ROLE_KEY`. How to apply and how to confirm Advisors 0013 / 0023: [SECURITY.md](../SECURITY.md).

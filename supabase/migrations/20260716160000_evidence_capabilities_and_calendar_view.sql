@@ -25,9 +25,8 @@ create index if not exists evidence_capabilities_expires_idx
 
 alter table public.evidence_capabilities enable row level security;
 
-drop policy if exists evidence_capabilities_all on public.evidence_capabilities;
-create policy evidence_capabilities_all on public.evidence_capabilities
-  for all using (true) with check (true);
+-- No USING (true) policy: deny-by-default. Mirror policies in
+-- 20260916120000_rls_deny_by_default.sql.
 
 comment on table public.evidence_capabilities is
   'Short-lived scoped capabilities for evidence broker (sensitive/restricted).';

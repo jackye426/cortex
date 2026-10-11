@@ -71,6 +71,11 @@ create table public.prediction_events (
 create index prediction_events_owner_idx
   on public.prediction_events (owner_id, created_at desc);
 
+alter table public.decisions enable row level security;
+alter table public.decision_outcomes enable row level security;
+alter table public.experiments enable row level security;
+alter table public.prediction_events enable row level security;
+
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'cortex_mirror') then

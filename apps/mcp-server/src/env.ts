@@ -50,13 +50,19 @@ export function resolveOpsMcpToken(): string | undefined {
   return resolveMcpToken();
 }
 
+let warnedAnonVaultKey = false;
+
 /** Gateway key for Kong `apikey` (anon or service_role). */
 export function resolveSupabaseGatewayKey(): string | undefined {
-  return (
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    undefined
-  );
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const anon = process.env.SUPABASE_ANON_KEY?.trim();
+  if (!serviceRole && anon && !warnedAnonVaultKey) {
+    warnedAnonVaultKey = true;
+    console.warn(
+      "[env] SUPABASE_SERVICE_ROLE_KEY unset; anon cannot bypass RLS after the deny-by-default migration. See SECURITY.md.",
+    );
+  }
+  return serviceRole || anon || undefined;
 }
 
 /** Vault / Ops credential (service role preferred). */

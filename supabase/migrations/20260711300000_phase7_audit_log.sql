@@ -26,9 +26,8 @@ create index if not exists audit_log_route_idx
 
 alter table public.audit_log enable row level security;
 
--- Phase 0 single-user stub policy (tighten with auth.uid() when multi-user).
-drop policy if exists audit_log_all on public.audit_log;
-create policy audit_log_all on public.audit_log for all using (true) with check (true);
+-- No policies here: deny-by-default for anon/authenticated. Mirror INSERT
+-- and PUBLIC/anon REVOKE land in 20260916120000_rls_deny_by_default.sql.
 
 comment on table public.audit_log is
   'Successful authenticated ingest/MCP requests; token_id_hash only, never raw secrets.';

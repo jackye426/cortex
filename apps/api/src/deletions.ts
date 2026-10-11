@@ -8,6 +8,8 @@
  * See docs/hardening.md.
  */
 
+import { isSupabaseConfigured, resolveSupabaseVaultKey } from "./persist.js";
+
 export type DeletionTargetType =
   | "record"
   | "raw_artifact"
@@ -28,16 +30,6 @@ export interface DeletionTombstone {
 export interface DeletionRecord extends DeletionTombstone {
   id?: string;
   deletedAt: string;
-}
-
-function isSupabaseConfigured(): boolean {
-  const url = process.env.SUPABASE_URL?.trim();
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY?.trim();
-  if (!url || !key) return false;
-  if (url.includes("YOUR_PROJECT_REF")) return false;
-  return true;
 }
 
 /**
@@ -70,9 +62,7 @@ export async function recordDeletion(
   }
 
   const url = process.env.SUPABASE_URL!.replace(/\/$/, "");
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY!.trim();
+  const key = resolveSupabaseVaultKey()!;
 
   try {
     const res = await fetch(`${url}/rest/v1/deletions`, {
@@ -111,9 +101,7 @@ export async function isTombstoned(
   if (!isSupabaseConfigured()) return false;
 
   const url = process.env.SUPABASE_URL!.replace(/\/$/, "");
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_ANON_KEY!.trim();
+  const key = resolveSupabaseVaultKey()!;
 
   try {
     const qs = new URLSearchParams({

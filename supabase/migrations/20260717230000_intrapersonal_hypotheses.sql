@@ -91,6 +91,11 @@ create table public.insight_verdicts (
 create index insight_verdicts_owner_created_idx
   on public.insight_verdicts (owner_id, created_at desc);
 
+alter table public.hypotheses enable row level security;
+alter table public.intrapersonal_records enable row level security;
+alter table public.self_model_versions enable row level security;
+alter table public.insight_verdicts enable row level security;
+
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'cortex_mirror') then
