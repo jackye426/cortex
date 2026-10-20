@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Cortex — personal AI/session vault, canonical store, and remote MCP",
+  "description": "Cortex \u2014 personal AI/session vault, canonical store, and remote MCP",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=25"
@@ -38,12 +38,17 @@
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop ecosystem.config.cjs",
     "lint": "eslint .",
-    "typecheck": "pnpm -r run typecheck"
+    "typecheck": "pnpm -r run typecheck",
+    "test:grants": "node --test scripts/data-api-grants.test.mjs"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
+    "@electric-sql/pglite-pgvector": "0.0.11",
     "@eslint/js": "^9.30.1",
     "@types/node": "^24.0.10",
     "eslint": "^9.30.1",

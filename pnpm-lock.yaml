@@ -8,6 +8,12 @@ importers:
 
   .:
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.5.10
+        version: 0.5.10
+      '@electric-sql/pglite-pgvector':
+        specifier: 0.0.11
+        version: 0.0.11(@electric-sql/pglite@0.5.10)
       '@eslint/js':
         specifier: ^9.30.1
         version: 9.39.5
@@ -559,6 +565,14 @@ packages:
   '@babel/types@7.29.8':
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
+
+  '@electric-sql/pglite-pgvector@0.0.11':
+    resolution: {integrity: sha512-pUukU2iqI5TLBv/0D5Bk9R9zVyms+7Do6yscl4WRKW5pD2wNl8FlzGWDXphXj/Q42SsVIJHbP4+oqwjQC9fasg==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.10
+
+  '@electric-sql/pglite@0.5.10':
+    resolution: {integrity: sha512-tXc/25U3ulOkiRQuTFdwIv+JhBqtMdAF7Gvo6CfZZWtSB4+hgC4Wr2vwK5ngvvN5PJfAAEGIsfyCVy1JhCOBYw==}
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -2807,6 +2821,12 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
+
+  '@electric-sql/pglite-pgvector@0.0.11(@electric-sql/pglite@0.5.10)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.10
+
+  '@electric-sql/pglite@0.5.10': {}
 
   '@esbuild/aix-ppc64@0.25.12':
     optional: true
