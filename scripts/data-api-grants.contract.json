@@ -1,0 +1,263 @@
+{
+  "sources": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "source_accounts": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "sync_checkpoints": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "raw_artifacts": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "records": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "sessions": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "turns": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "messages": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "tool_calls": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "entities": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "entity_links": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "deletions": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "distillates": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "api_tokens": {
+    "createdBy": "20260711100000_phase0_schema.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "audit_log": {
+    "createdBy": "20260711300000_phase7_audit_log.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "evidence_capabilities": {
+    "createdBy": "20260716160000_evidence_capabilities_and_calendar_view.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "observations": {
+    "createdBy": "20260717210000_intrapersonal_evidence.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "claim_evidence": {
+    "createdBy": "20260717210000_intrapersonal_evidence.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "interests": {
+    "createdBy": "20260717220000_intrapersonal_interests.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "affect_signals": {
+    "createdBy": "20260717220000_intrapersonal_interests.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "hypotheses": {
+    "createdBy": "20260717230000_intrapersonal_hypotheses.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "intrapersonal_records": {
+    "createdBy": "20260717230000_intrapersonal_hypotheses.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "self_model_versions": {
+    "createdBy": "20260717230000_intrapersonal_hypotheses.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "insight_verdicts": {
+    "createdBy": "20260717230000_intrapersonal_hypotheses.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "decisions": {
+    "createdBy": "20260717240000_intrapersonal_outcomes.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "decision_outcomes": {
+    "createdBy": "20260717240000_intrapersonal_outcomes.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "experiments": {
+    "createdBy": "20260717240000_intrapersonal_outcomes.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "prediction_events": {
+    "createdBy": "20260717240000_intrapersonal_outcomes.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "self_model_diffs": {
+    "createdBy": "20260717250000_intrapersonal_longitudinal.sql",
+    "serviceRole": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  }
+}
